@@ -40,10 +40,11 @@ route(/^#\/ranking$/, () => shell(viewRanking));
 
 async function render() {
   const hash = location.hash || '#/';
-  if (!API.token && hash !== '#/login') { location.hash = '#/login'; return; }
+  const path = hash.split('?')[0]; // ignora la query (?a=b) al elegir la ruta
+  if (!API.token && path !== '#/login') { location.hash = '#/login'; return; }
   if (API.token && !API.meta) { try { API.meta = await API.get('/meta'); } catch (e) {} }
-  const found = routes.find((r) => r.re.test(hash));
-  if (found) { try { await found.handler(hash.match(found.re)); } catch (e) { app().innerHTML = errorBox(e.message); } }
+  const found = routes.find((r) => r.re.test(path));
+  if (found) { try { await found.handler(path.match(found.re)); } catch (e) { app().innerHTML = errorBox(e.message); } }
   else app().innerHTML = errorBox('Página no encontrada');
   resetIdle();
 }
