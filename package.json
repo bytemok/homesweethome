@@ -1,0 +1,27 @@
+{
+  "name": "portal-proveedores-muebles",
+  "version": "1.0.0",
+  "description": "Portal de Proveedores - Todo en Muebles. Web app responsive conectada por API con Odoo 19.",
+  "type": "commonjs",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "seed": "node server/seed.js",
+    "dev": "node --watch server/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.3.0",
+    "bwip-js": "^4.5.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.2.0",
+    "pdfkit": "^0.15.0"
+  }
+}
