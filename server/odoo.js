@@ -239,4 +239,97 @@ async function pushToOdoo(model, odooId, values, entity) {
   }
 }
 
-module.exports = { pullOrders, pushToOdoo, execKw, authenticate, call, _internals: { parseResponse, buildRequest } };
+// ---- Sincronización de ÓRDENES DE COMPRA (asignación por proveedor) --------
+// Cada orden de compra confirmada (state='purchase') se convierte en un pedido
+// del portal, asignado automáticamente al proveedor de esa OC (match por odoo_id).
+async function pullPurchaseOrders() {
+  if (!cfg.odoo.enabled) {
+    logSync({ direction: 'pull', entity: 'purchase.order', status: 'ok',
+      message: 'Modo mock: Odoo deshabilitado.' });
+    return { imported: 0, assigned: 0, mode: 'mock' };
+  }
+  const pos = await execKw('purchase.order', 'search_read',
+    [[['state', 'in', ['purchase', 'done']]]],
+    { fields: ['name', 'partner_id', 'date_order', 'date_planned', 'origin', 'amount_total', 'partner_ref'], limit: 300 });
+
+  let imported = 0, assigned = 0;
+  for (const po of pos) {
+    try {
+      const partnerId = Array.isArray(po.partner_id) ? po.partner_id[0] : null;
+      const partnerName = Array.isArray(po.partner_id) ? po.partner_id[1] : 'Proveedor';
+      if (!partnerId) continue;
+
+      // Proveedor: buscar por odoo_id, o crearlo si no existe
+      let sup = db.prepare('SELECT id FROM suppliers WHERE odoo_id=?').get(partnerId);
+      if (!sup) {
+        const supId = db.prepare('INSERT INTO suppliers (odoo_id,name) VALUES (?,?)')
+          .run(partnerId, partnerName).lastInsertRowid;
+        sup = { id: supId };
+      }
+
+      // Cliente final: intentar tomarlo del documento de origen (venta) si existe
+      let clientId = null;
+      if (po.origin) {
+        const so = await execKw('sale.order', 'search_read', [[['name', '=', po.origin]]],
+          { fields: ['partner_id'], limit: 1 }).catch(() => []);
+        if (so && so[0] && Array.isArray(so[0].partner_id)) {
+          const cpid = so[0].partner_id[0];
+          const ex = db.prepare('SELECT id FROM clients WHERE odoo_id=?').get(cpid);
+          if (ex) clientId = ex.id;
+          else {
+            const [p] = await execKw('res.partner', 'read', [[cpid]],
+              { fields: ['name', 'phone', 'street', 'city', 'state_id', 'zip'] });
+            clientId = db.prepare(`INSERT INTO clients (odoo_id,name,phone,address,city,province,zip)
+              VALUES (?,?,?,?,?,?,?)`).run(cpid, p.name, p.phone, p.street, p.city,
+              Array.isArray(p.state_id) ? p.state_id[1] : null, p.zip).lastInsertRowid;
+          }
+        }
+      }
+
+      // Pedido: upsert por número de OC. Se asigna al proveedor de la OC.
+      const existing = db.prepare('SELECT id, supplier_id FROM orders WHERE order_number=?').get(po.name);
+      let orderId;
+      if (existing) {
+        orderId = existing.id;
+        db.prepare('UPDATE orders SET supplier_id=?, client_id=COALESCE(?,client_id), updated_at=datetime(\'now\') WHERE id=?')
+          .run(sup.id, clientId, orderId);
+        if (existing.supplier_id !== sup.id) assigned++;
+      } else {
+        orderId = db.prepare(`INSERT INTO orders
+          (order_number, barcode, client_id, supplier_id, sale_total, created_date, confirmed_date, confirmation)
+          VALUES (?,?,?,?,?,?,?, 'nuevo')`).run(po.name, po.name, clientId, sup.id,
+          po.amount_total, po.date_order, po.date_order).lastInsertRowid;
+        assigned++;
+        // Notificar al proveedor
+        const users = db.prepare("SELECT id FROM users WHERE role='proveedor' AND supplier_id=?").all(sup.id);
+        for (const u of users) {
+          db.prepare(`INSERT INTO notifications (user_id, order_id, type, title)
+            VALUES (?,?,?,?)`).run(u.id, orderId, 'asignado', `Nueva orden de compra asignada: ${po.name}`);
+        }
+      }
+
+      // Líneas de la OC
+      const lines = await execKw('purchase.order.line', 'search_read',
+        [[['order_id', '=', po.id]]],
+        { fields: ['product_id', 'name', 'product_qty', 'price_unit', 'date_planned'] });
+      for (const l of lines) {
+        if (db.prepare('SELECT id FROM order_lines WHERE odoo_id=?').get(l.id)) continue;
+        let code = null, barcode = null;
+        if (Array.isArray(l.product_id)) {
+          const [prod] = await execKw('product.product', 'read', [[l.product_id[0]]],
+            { fields: ['default_code', 'barcode'] }).catch(() => [{}]);
+          code = prod?.default_code || null; barcode = prod?.barcode || null;
+        }
+        db.prepare(`INSERT INTO order_lines (odoo_id, order_id, product_name, internal_code, barcode, qty)
+          VALUES (?,?,?,?,?,?)`).run(l.id, orderId, l.name, code, barcode, l.product_qty);
+      }
+      imported++;
+      logSync({ direction: 'pull', entity: 'purchase.order', ref_id: po.id, status: 'ok', message: `${po.name} -> ${partnerName}` });
+    } catch (e) {
+      logSync({ direction: 'pull', entity: 'purchase.order', ref_id: po.id, status: 'error', message: e.message });
+    }
+  }
+  return { imported, assigned, mode: 'odoo' };
+}
+
+module.exports = { pullOrders, pullPurchaseOrders, pushToOdoo, execKw, authenticate, call, _internals: { parseResponse, buildRequest } };
