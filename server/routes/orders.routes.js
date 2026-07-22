@@ -26,6 +26,16 @@ router.get('/', (req, res) => {
 
   if (req.user.role === 'proveedor') { where.push('o.supplier_id = ?'); params.push(req.user.supplier_id); }
 
+  // Entregado = todas las líneas recibidas (o canceladas). Pendiente = queda algo por entregar.
+  const DELIVERED = `NOT EXISTS (SELECT 1 FROM order_lines l WHERE l.order_id=o.id
+      AND l.qty_delivered < l.qty AND l.state <> 'cancelado')
+    AND EXISTS (SELECT 1 FROM order_lines l2 WHERE l2.order_id=o.id)`;
+  if (req.query.entregados) {
+    where.push(`(${DELIVERED})`);                    // vista "Entregados"
+  } else if (!req.query.all) {
+    where.push(`NOT (${DELIVERED})`);                // por defecto: solo pendientes de entregar
+  }
+
   if (client) { where.push('c.name LIKE ?'); params.push(`%${client}%`); }
   if (confirmation) { where.push('o.confirmation = ?'); params.push(confirmation); }
   if (urgent) where.push("o.priority = 'urgente'");
@@ -167,6 +177,27 @@ router.post('/:id/assign', requireRole('admin'), (req, res) => {
   const users = db.prepare("SELECT id FROM users WHERE role='proveedor' AND supplier_id=?").all(supplier_id);
   for (const u of users) notify({ userId: u.id, order_id: o.id, type: 'asignado',
     title: `Nuevo pedido asignado: ${o.order_number}` });
+  res.json({ ok: true });
+});
+
+// POST /api/orders/:id/deliver — marcar el pedido como entregado ----------
+// (admin/depósito: "el proveedor ya me lo trajo"). Pasa a la lista de Entregados.
+router.post('/:id/deliver', requireRole('admin', 'deposito'), (req, res) => {
+  const o = db.prepare('SELECT * FROM orders WHERE id=?').get(req.params.id);
+  if (!o) return res.status(404).json({ error: 'Pedido no encontrado' });
+  db.prepare("UPDATE order_lines SET qty_delivered=qty, state='recibido_completo' WHERE order_id=? AND state<>'cancelado'").run(o.id);
+  db.prepare("UPDATE orders SET real_delivery_date=datetime('now') WHERE id=?").run(o.id);
+  audit(req, { entity: 'orders', entity_id: o.id, order_id: o.id, action: 'deliver', field: 'entregado', new_value: 'entregado' });
+  res.json({ ok: true });
+});
+
+// POST /api/orders/:id/undeliver — volver a pendiente (por si se marcó mal)
+router.post('/:id/undeliver', requireRole('admin', 'deposito'), (req, res) => {
+  const o = db.prepare('SELECT * FROM orders WHERE id=?').get(req.params.id);
+  if (!o) return res.status(404).json({ error: 'Pedido no encontrado' });
+  db.prepare("UPDATE order_lines SET qty_delivered=0, state='confirmado' WHERE order_id=? AND state='recibido_completo'").run(o.id);
+  db.prepare("UPDATE orders SET real_delivery_date=NULL WHERE id=?").run(o.id);
+  audit(req, { entity: 'orders', entity_id: o.id, order_id: o.id, action: 'undeliver' });
   res.json({ ok: true });
 });
 

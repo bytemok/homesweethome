@@ -6,14 +6,14 @@ const app = () => document.getElementById('app');
 // ---- Navegación por rol ----------------------------------------------------
 const NAV = {
   admin: [
-    ['#/', '🏠', 'Inicio'], ['#/orders', '📋', 'Pedidos'], ['#/admin/costs', '💲', 'Costos'],
-    ['#/admin', '📊', 'Panel'], ['#/ranking', '🏆', 'Ranking'], ['#/reception', '📦', 'Recepción'],
-    ['#/calendar', '📅', 'Calendario'], ['#/admin/users', '👥', 'Usuarios'],
+    ['#/', '🏠', 'Inicio'], ['#/orders', '📋', 'Pedidos'], ['#/orders?entregados=1', '✅', 'Entregados'],
+    ['#/admin/costs', '💲', 'Costos'], ['#/admin', '📊', 'Panel'], ['#/ranking', '🏆', 'Ranking'],
+    ['#/reception', '📦', 'Recepción'], ['#/calendar', '📅', 'Calendario'], ['#/admin/users', '👥', 'Usuarios'],
     ['#/admin/audit', '🕓', 'Auditoría'], ['#/admin/sync', '🔄', 'Odoo'],
   ],
   proveedor: [
-    ['#/', '🏠', 'Inicio'], ['#/orders', '📋', 'Pedidos'], ['#/calendar', '📅', 'Entregas'],
-    ['#/notifications', '🔔', 'Avisos'],
+    ['#/', '🏠', 'Inicio'], ['#/orders', '📋', 'Pedidos'], ['#/orders?entregados=1', '✅', 'Entregados'],
+    ['#/calendar', '📅', 'Entregas'], ['#/notifications', '🔔', 'Avisos'],
   ],
   deposito: [
     ['#/reception', '📦', 'Recepción'], ['#/orders', '📋', 'Pedidos'], ['#/notifications', '🔔', 'Avisos'],
@@ -180,11 +180,12 @@ function parseQuery(hash) {
   return q;
 }
 async function viewOrders() {
-  setTitle('Pedidos');
   const q = parseQuery(location.hash);
+  const heading = q.entregados ? 'Entregados' : 'Pedidos a fabricar';
+  setTitle(heading);
   const isAdmin = API.user.role === 'admin';
   C().innerHTML = `
-    <div class="section-title"><h1>Pedidos</h1></div>
+    <div class="section-title"><h1>${heading}</h1></div>
     <div class="panel">
       <div class="filters">
         <input id="f_q" placeholder="Buscar (orden, cliente, producto)" value="${esc(q.q || '')}">
@@ -218,6 +219,7 @@ async function viewOrders() {
     ['delayed:f_delayed', 'no_cost:f_nocost', 'no_date:f_nodate', 'urgent:f_urgent'].forEach((pair) => {
       const [key, id] = pair.split(':'); if (document.getElementById(id).checked) p.set(key, '1');
     });
+    if (q.entregados) p.set('entregados', '1'); // conservar la vista Entregados al filtrar
     return p.toString();
   };
   document.getElementById('applyF').onclick = () => { location.hash = '#/orders?' + buildQ(); loadOrders(buildQ()); };

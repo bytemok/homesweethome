@@ -302,4 +302,13 @@ CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, is_read);
 CREATE INDEX IF NOT EXISTS idx_audit_order ON audit_log(order_id);
 `);
 
+// --- Migraciones incrementales (para bases ya existentes) ------------------
+function addColumn(table, col, def) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+  if (!cols.includes(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${def}`);
+}
+// Nº de orden de compra (P…) guardado aparte; el order_number muestra la venta (S…)
+addColumn('orders', 'po_number', 'po_number TEXT');
+db.exec("UPDATE orders SET po_number = order_number WHERE po_number IS NULL");
+
 module.exports = db;

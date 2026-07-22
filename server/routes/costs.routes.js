@@ -72,9 +72,10 @@ router.post('/:costId/decision', requireRole('admin'), (req, res) => {
   audit(req, { entity: 'line_costs', entity_id: cost.id, order_id: line.order_id,
     field: 'status', old_value: cost.status, new_value: decision, action: 'cost_decision' });
 
-  // Al aprobar, actualizar el costo en Odoo
+  // Al aprobar, actualizar el costo unitario en la orden de compra de Odoo
+  // (queda reflejado en tu lista de costos y en la ganancia).
   if (decision === 'aprobado') {
-    pushToOdoo('sale.order.line', line.odoo_id, { purchase_price: cost.total_cost }, 'line_costs').catch(() => {});
+    pushToOdoo('purchase.order.line', line.odoo_id, { price_unit: cost.unit_cost }, 'line_costs').catch(() => {});
   }
   // Notificar a los usuarios del proveedor
   const users = db.prepare("SELECT id FROM users WHERE role='proveedor' AND supplier_id=?").all(line.supplier_id);

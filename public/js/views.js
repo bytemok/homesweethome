@@ -16,6 +16,7 @@ async function viewOrderDetail(id) {
       <h1>Pedido ${esc(o.order_number)} ${prioBadge(o.priority)}</h1>
       <div class="btnrow">
         <button class="btn small secondary" onclick="openLabelWindow('/labels/order/${o.id}?mode=order')">🏷️ Etiquetas</button>
+        ${(isAdmin || API.user.role === 'deposito') ? `<button class="btn small ok" onclick="markDelivered(${o.id})">✅ Marcar entregado</button>` : ''}
         <button class="btn small ghost" onclick="printMenu(${o.id})">⋯</button>
       </div>
     </div>
@@ -205,20 +206,15 @@ function costPanel(l, cost, isAdmin) {
        <button class="btn small ok" onclick="costDecision(${cost.id}, 'aprobado', ${l.id})">Aprobar</button>
        <button class="btn small danger" onclick="costDecision(${cost.id}, 'rechazado', ${l.id})">Rechazar</button>
        <button class="btn small ghost" onclick="costDecision(${cost.id}, 'revision', ${l.id})">Requiere revisión</button></div>` : '';
-  return `<h3>💲 Costo de fabricación ${statusBadge}</h3>
-    <div class="grid3">
-      ${f('unit_cost', 'Costo unitario')}
-      <div><label class="lab">Cantidad</label><input type="number" class="c_qty" value="${c.qty ?? l.qty}"></div>
-      ${f('extras_cost', 'Costo adicionales')}${f('legs_cost', 'Costo patas')}${f('fabric_cost', 'Costo tela especial')}
-      ${f('packaging_cost', 'Costo embalaje')}${f('shipping_cost', 'Costo envío/traslado')}${f('other_cost', 'Otros costos')}
+  return `<h3>💲 Costo ${statusBadge}</h3>
+    <input type="hidden" class="c_qty" value="${c.qty ?? l.qty}">
+    <div class="grid2">
+      <div><label class="lab">Costo por unidad</label>
+        <input type="number" class="c_unit_cost" value="${c.unit_cost ?? ''}" step="0.01" placeholder="0" style="font-size:18px"></div>
+      <div><label class="lab">Total (${l.qty} u.)</label><input class="c_total" value="${money(c.total_cost)}" disabled></div>
     </div>
-    <div class="grid3">
-      <div><label class="lab">Moneda</label><select class="c_currency"><option ${c.currency === 'ARS' ? 'selected' : ''}>ARS</option><option ${c.currency === 'USD' ? 'selected' : ''}>USD</option></select></div>
-      <div><label class="lab">IVA incluido</label><select class="c_vat"><option value="0" ${!c.vat_included ? 'selected' : ''}>No</option><option value="1" ${c.vat_included ? 'selected' : ''}>Sí</option></select></div>
-      <div><label class="lab">Costo total (calculado)</label><input class="c_total" value="${money(c.total_cost)}" disabled></div>
-    </div>
-    <div class="field"><label class="lab">Observaciones del costo</label><input class="c_notes" value="${esc(c.notes || '')}"></div>
-    <button class="btn small" onclick="saveCost(${l.id}, this)">Guardar costo</button>${decision}`;
+    <div class="field"><label class="lab">Observación (opcional)</label><input class="c_notes" value="${esc(c.notes || '')}"></div>
+    <button class="btn" onclick="saveCost(${l.id}, this)">Guardar costo</button>${decision}`;
 }
 function costReadOnly(cost) {
   return `<h3>💲 Costo ${costStatusBadge(cost.status)}</h3>
@@ -340,10 +336,10 @@ async function saveCost(lineId, btn) {
   const p = btn.closest('[data-line]');
   const g = (c) => +(p.querySelector('.c_' + c)?.value || 0);
   const body = {
-    unit_cost: g('unit_cost'), qty: g('qty'), extras_cost: g('extras_cost'), legs_cost: g('legs_cost'),
+    unit_cost: g('unit_cost'), qty: g('qty') || 1, extras_cost: g('extras_cost'), legs_cost: g('legs_cost'),
     fabric_cost: g('fabric_cost'), packaging_cost: g('packaging_cost'), shipping_cost: g('shipping_cost'),
-    other_cost: g('other_cost'), currency: p.querySelector('.c_currency').value,
-    vat_included: p.querySelector('.c_vat').value === '1', notes: p.querySelector('.c_notes').value,
+    other_cost: g('other_cost'), currency: p.querySelector('.c_currency')?.value || 'ARS',
+    vat_included: p.querySelector('.c_vat')?.value === '1', notes: p.querySelector('.c_notes')?.value || '',
   };
   try { const r = await API.post(`/costs/line/${lineId}`, body); toast('Costo guardado (' + r.status + ')', 'ok'); viewOrderDetail(currentOrderId()); }
   catch (e) { toast(e.message, 'err'); }
@@ -362,6 +358,12 @@ async function saveDelivery(orderId, btn) {
   catch (e) { toast(e.message, 'err'); }
 }
 const currentOrderId = () => +(location.hash.match(/orders\/(\d+)/) || [])[1];
+
+async function markDelivered(orderId) {
+  if (!(await confirmAction('¿Marcar este pedido como ENTREGADO? Sale de la lista de pendientes y pasa a "Entregados".'))) return;
+  try { await API.post('/orders/' + orderId + '/deliver'); toast('Marcado como entregado', 'ok'); viewOrderDetail(orderId); }
+  catch (e) { toast(e.message, 'err'); }
+}
 
 function printMenu(orderId) {
   const back = document.createElement('div'); back.className = 'modal-back';

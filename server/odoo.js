@@ -250,7 +250,7 @@ async function pullPurchaseOrders() {
   }
   const pos = await execKw('purchase.order', 'search_read',
     [[['state', 'in', ['purchase', 'done']]]],
-    { fields: ['name', 'partner_id', 'date_order', 'date_planned', 'origin', 'amount_total', 'partner_ref'], limit: 300 });
+    { fields: ['name', 'partner_id', 'date_order', 'date_planned', 'origin', 'amount_total', 'partner_ref'], limit: 5000 });
 
   let imported = 0, assigned = 0;
   for (const po of pos) {
@@ -267,11 +267,12 @@ async function pullPurchaseOrders() {
         sup = { id: supId };
       }
 
-      // Cliente final: intentar tomarlo del documento de origen (venta) si existe
-      let clientId = null;
+      // Cliente final + precio de venta al cliente (para la ganancia), desde la venta de origen
+      let clientId = null, saleTotal = po.amount_total;
       if (po.origin) {
         const so = await execKw('sale.order', 'search_read', [[['name', '=', po.origin]]],
-          { fields: ['partner_id'], limit: 1 }).catch(() => []);
+          { fields: ['partner_id', 'amount_total'], limit: 1 }).catch(() => []);
+        if (so && so[0] && typeof so[0].amount_total === 'number') saleTotal = so[0].amount_total;
         if (so && so[0] && Array.isArray(so[0].partner_id)) {
           const cpid = so[0].partner_id[0];
           const ex = db.prepare('SELECT id FROM clients WHERE odoo_id=?').get(cpid);
@@ -286,42 +287,58 @@ async function pullPurchaseOrders() {
         }
       }
 
-      // Pedido: upsert por número de OC. Se asigna al proveedor de la OC.
-      const existing = db.prepare('SELECT id, supplier_id FROM orders WHERE order_number=?').get(po.name);
+      // Nº mostrado = número de VENTA (origen, S…); internamente se clavea por la OC (P…).
+      const poNumber = po.name;
+      const saleNumber = (po.origin && String(po.origin).trim())
+        ? String(po.origin).split(',')[0].trim() : po.name;
+      const existing = db.prepare('SELECT id, supplier_id FROM orders WHERE po_number=? OR order_number=?')
+        .get(poNumber, poNumber);
       let orderId;
       if (existing) {
         orderId = existing.id;
-        db.prepare('UPDATE orders SET supplier_id=?, client_id=COALESCE(?,client_id), updated_at=datetime(\'now\') WHERE id=?')
-          .run(sup.id, clientId, orderId);
+        db.prepare(`UPDATE orders SET supplier_id=?, client_id=COALESCE(?,client_id), sale_total=?,
+          order_number=?, barcode=?, po_number=?, updated_at=datetime('now') WHERE id=?`)
+          .run(sup.id, clientId, saleTotal, saleNumber, saleNumber, poNumber, orderId);
         if (existing.supplier_id !== sup.id) assigned++;
       } else {
         orderId = db.prepare(`INSERT INTO orders
-          (order_number, barcode, client_id, supplier_id, sale_total, created_date, confirmed_date, confirmation)
-          VALUES (?,?,?,?,?,?,?, 'nuevo')`).run(po.name, po.name, clientId, sup.id,
-          po.amount_total, po.date_order, po.date_order).lastInsertRowid;
+          (order_number, po_number, barcode, client_id, supplier_id, sale_total, created_date, confirmed_date, confirmation)
+          VALUES (?,?,?,?,?,?,?,?, 'nuevo')`).run(saleNumber, poNumber, saleNumber, clientId, sup.id,
+          saleTotal, po.date_order, po.date_order).lastInsertRowid;
         assigned++;
         // Notificar al proveedor
         const users = db.prepare("SELECT id FROM users WHERE role='proveedor' AND supplier_id=?").all(sup.id);
         for (const u of users) {
           db.prepare(`INSERT INTO notifications (user_id, order_id, type, title)
-            VALUES (?,?,?,?)`).run(u.id, orderId, 'asignado', `Nueva orden de compra asignada: ${po.name}`);
+            VALUES (?,?,?,?)`).run(u.id, orderId, 'asignado', `Nuevo pedido asignado: ${saleNumber}`);
         }
       }
 
-      // Líneas de la OC
+      // Líneas de la OC (con cantidad ya recibida para saber qué falta entregar)
       const lines = await execKw('purchase.order.line', 'search_read',
         [[['order_id', '=', po.id]]],
-        { fields: ['product_id', 'name', 'product_qty', 'price_unit', 'date_planned'] });
+        { fields: ['product_id', 'name', 'product_qty', 'price_unit', 'qty_received', 'date_planned'] });
       for (const l of lines) {
-        if (db.prepare('SELECT id FROM order_lines WHERE odoo_id=?').get(l.id)) continue;
+        const qty = +l.product_qty || 0;
+        const received = +l.qty_received || 0;
+        const fullyReceived = qty > 0 && received >= qty;
+        const existing = db.prepare('SELECT id, state FROM order_lines WHERE odoo_id=?').get(l.id);
+        if (existing) {
+          // Actualizar lo recibido; si ya llegó todo, marcar recibido_completo (sale de la lista del proveedor)
+          const newState = fullyReceived ? 'recibido_completo' : existing.state;
+          db.prepare('UPDATE order_lines SET qty=?, qty_delivered=?, state=? WHERE id=?')
+            .run(qty, received, newState, existing.id);
+          continue;
+        }
         let code = null, barcode = null;
         if (Array.isArray(l.product_id)) {
           const [prod] = await execKw('product.product', 'read', [[l.product_id[0]]],
             { fields: ['default_code', 'barcode'] }).catch(() => [{}]);
           code = prod?.default_code || null; barcode = prod?.barcode || null;
         }
-        db.prepare(`INSERT INTO order_lines (odoo_id, order_id, product_name, internal_code, barcode, qty)
-          VALUES (?,?,?,?,?,?)`).run(l.id, orderId, l.name, code, barcode, l.product_qty);
+        db.prepare(`INSERT INTO order_lines (odoo_id, order_id, product_name, internal_code, barcode, qty, qty_delivered, state)
+          VALUES (?,?,?,?,?,?,?,?)`).run(l.id, orderId, l.name, code, barcode, qty, received,
+          fullyReceived ? 'recibido_completo' : 'nuevo');
       }
       imported++;
       logSync({ direction: 'pull', entity: 'purchase.order', ref_id: po.id, status: 'ok', message: `${po.name} -> ${partnerName}` });
