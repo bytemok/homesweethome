@@ -22,7 +22,7 @@ router.get('/cards', (req, res) => {
   const lineBase = `FROM order_lines l JOIN orders o ON o.id=l.order_id WHERE 1=1 ${s.clause}`;
 
   // Un pedido está PENDIENTE si le queda alguna línea sin entregar (pick-in sin validar).
-  const PEND = `EXISTS (SELECT 1 FROM order_lines l WHERE l.order_id=o.id AND l.qty_delivered<l.qty AND l.state<>'cancelado')`;
+  const PEND = `EXISTS (SELECT 1 FROM order_lines l WHERE l.order_id=o.id AND l.qty_delivered<l.qty AND l.state NOT IN ('cancelado','recibido_completo','despachado'))`;
   const HAS = `EXISTS (SELECT 1 FROM order_lines l0 WHERE l0.order_id=o.id)`;
   const has = (states) => `EXISTS (SELECT 1 FROM order_lines l WHERE l.order_id=o.id AND l.state IN (${states}))`;
 

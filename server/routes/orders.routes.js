@@ -26,9 +26,9 @@ router.get('/', (req, res) => {
 
   if (req.user.role === 'proveedor') { where.push('o.supplier_id = ?'); params.push(req.user.supplier_id); }
 
-  // Entregado = todas las líneas recibidas (o canceladas). Pendiente = queda algo por entregar.
+  // Entregado = todas las líneas recibidas/despachadas (o canceladas). Pendiente = queda algo por hacer.
   const DELIVERED = `NOT EXISTS (SELECT 1 FROM order_lines l WHERE l.order_id=o.id
-      AND l.qty_delivered < l.qty AND l.state <> 'cancelado')
+      AND l.qty_delivered < l.qty AND l.state NOT IN ('cancelado','recibido_completo','despachado'))
     AND EXISTS (SELECT 1 FROM order_lines l2 WHERE l2.order_id=o.id)`;
   if (req.query.entregados) {
     where.push(`(${DELIVERED})`);                    // vista "Entregados"

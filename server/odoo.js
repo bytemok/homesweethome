@@ -249,7 +249,7 @@ async function pullPurchaseOrders() {
     return { imported: 0, assigned: 0, mode: 'mock' };
   }
   const pos = await execKw('purchase.order', 'search_read',
-    [[['state', 'in', ['purchase', 'done']]]],
+    [[['state', 'in', ['purchase', 'done']], ['origin', '!=', false]]],
     { fields: ['name', 'partner_id', 'date_order', 'date_planned', 'origin', 'amount_total', 'partner_ref'], limit: 5000 });
 
   let imported = 0, assigned = 0;
@@ -267,34 +267,39 @@ async function pullPurchaseOrders() {
         sup = { id: supId };
       }
 
-      // Cliente final + precio de venta + CANAL (para detectar Mercado Libre / Tienda Nube)
-      let clientId = null, saleTotal = po.amount_total, channel = po.partner_ref || null;
-      if (po.origin) {
-        const so = await execKw('sale.order', 'search_read', [[['name', '=', po.origin]]],
-          { fields: ['partner_id', 'amount_total', 'team_id', 'client_order_ref'], limit: 1 }).catch(() => []);
-        if (so && so[0]) {
-          if (typeof so[0].amount_total === 'number') saleTotal = so[0].amount_total;
-          channel = [Array.isArray(so[0].team_id) ? so[0].team_id[1] : null,
-            so[0].client_order_ref, po.partner_ref].filter(Boolean).join(' ') || null;
-        }
-        if (so && so[0] && Array.isArray(so[0].partner_id)) {
-          const cpid = so[0].partner_id[0];
-          const ex = db.prepare('SELECT id FROM clients WHERE odoo_id=?').get(cpid);
-          if (ex) clientId = ex.id;
-          else {
-            const [p] = await execKw('res.partner', 'read', [[cpid]],
-              { fields: ['name', 'phone', 'street', 'city', 'state_id', 'zip'] });
-            clientId = db.prepare(`INSERT INTO clients (odoo_id,name,phone,address,city,province,zip)
-              VALUES (?,?,?,?,?,?,?)`).run(cpid, p.name, p.phone, p.street, p.city,
-              Array.isArray(p.state_id) ? p.state_id[1] : null, p.zip).lastInsertRowid;
-          }
+      // SOLO pedidos asociados a una ORDEN DE VENTA (clientes reales). Si no, se ignora.
+      let so = null;
+      const saleName = po.origin ? String(po.origin).split(',')[0].trim() : null;
+      if (saleName) {
+        const rows = await execKw('sale.order', 'search_read', [[['name', '=', saleName]]],
+          { fields: ['partner_id', 'amount_total', 'team_id', 'client_order_ref', 'commitment_date', 'date_order'], limit: 1 }).catch(() => []);
+        so = rows && rows[0] ? rows[0] : null;
+      }
+      if (!so) continue; // sin venta asociada -> no va al portal del proveedor
+
+      const saleTotal = typeof so.amount_total === 'number' ? so.amount_total : po.amount_total;
+      const channel = [Array.isArray(so.team_id) ? so.team_id[1] : null,
+        so.client_order_ref, po.partner_ref].filter(Boolean).join(' ') || null;
+      const saleDate = (so.commitment_date || po.date_planned || so.date_order || po.date_order || '') || null;
+
+      // Cliente final
+      let clientId = null;
+      if (Array.isArray(so.partner_id)) {
+        const cpid = so.partner_id[0];
+        const ex = db.prepare('SELECT id FROM clients WHERE odoo_id=?').get(cpid);
+        if (ex) clientId = ex.id;
+        else {
+          const [p] = await execKw('res.partner', 'read', [[cpid]],
+            { fields: ['name', 'phone', 'street', 'city', 'state_id', 'zip'] });
+          clientId = db.prepare(`INSERT INTO clients (odoo_id,name,phone,address,city,province,zip)
+            VALUES (?,?,?,?,?,?,?)`).run(cpid, p.name, p.phone, p.street, p.city,
+            Array.isArray(p.state_id) ? p.state_id[1] : null, p.zip).lastInsertRowid;
         }
       }
 
-      // Nº mostrado = número de VENTA (origen, S…); internamente se clavea por la OC (P…).
+      // Nº mostrado = número de VENTA (S…); internamente se clavea por la OC (P…).
       const poNumber = po.name;
-      const saleNumber = (po.origin && String(po.origin).trim())
-        ? String(po.origin).split(',')[0].trim() : po.name;
+      const saleNumber = saleName;
       const existing = db.prepare('SELECT id, supplier_id FROM orders WHERE po_number=? OR order_number=?')
         .get(poNumber, poNumber);
       let orderId;
@@ -344,12 +349,29 @@ async function pullPurchaseOrders() {
           VALUES (?,?,?,?,?,?,?,?)`).run(l.id, orderId, l.name, code, barcode, qty, received,
           fullyReceived ? 'recibido_completo' : 'nuevo');
       }
+
+      // Fecha estimada desde la venta (sin pisar la que cargó el proveedor)
+      if (saleDate) {
+        const dline = String(saleDate).slice(0, 10);
+        const dExisting = db.prepare('SELECT id, estimated_date FROM deliveries WHERE order_id=?').get(orderId);
+        if (!dExisting) db.prepare('INSERT INTO deliveries (order_id, estimated_date) VALUES (?,?)').run(orderId, dline);
+        else if (!dExisting.estimated_date) db.prepare('UPDATE deliveries SET estimated_date=? WHERE id=?').run(dline, dExisting.id);
+      }
+
       imported++;
       logSync({ direction: 'pull', entity: 'purchase.order', ref_id: po.id, status: 'ok', message: `${po.name} -> ${partnerName}` });
     } catch (e) {
       logSync({ direction: 'pull', entity: 'purchase.order', ref_id: po.id, status: 'error', message: e.message });
     }
   }
+
+  // Limpiar pedidos importados que NO son de una venta (reposiciones/stock/manuales),
+  // solo si no tienen datos cargados por el proveedor.
+  db.prepare(`DELETE FROM orders WHERE po_number IS NOT NULL AND order_number NOT GLOB 'S[0-9]*'
+    AND NOT EXISTS (SELECT 1 FROM line_costs lc JOIN order_lines l ON l.id=lc.line_id WHERE l.order_id=orders.id)
+    AND NOT EXISTS (SELECT 1 FROM comments cm WHERE cm.order_id=orders.id)
+    AND NOT EXISTS (SELECT 1 FROM attachments a WHERE a.order_id=orders.id)`).run();
+
   return { imported, assigned, mode: 'odoo' };
 }
 
