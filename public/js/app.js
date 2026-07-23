@@ -180,6 +180,17 @@ function parseQuery(hash) {
   if (i >= 0) new URLSearchParams(hash.slice(i + 1)).forEach((v, k) => (q[k] = v));
   return q;
 }
+// Marcar entregado rápido desde la lista (sin abrir el pedido) --------------
+async function quickDeliver(orderId) {
+  const date = await askDate('Marcar como ENTREGADO — fecha de entrega:');
+  if (!date) return;
+  try {
+    await API.post('/orders/' + orderId + '/deliver', { date });
+    toast('Pedido entregado', 'ok');
+    render(); // recarga la vista actual (respeta pestaña y filtros activos)
+  } catch (e) { toast(e.message, 'err'); }
+}
+
 const ORDER_TABS = [
   ['fabricar', 'Pendientes de fabricación'],
   ['enviar', 'Próximos a enviar'],
@@ -223,8 +234,8 @@ async function viewOrders() {
       <div id="owedBox"></div>
       <div class="table-wrap"><table id="ordersTable"><thead><tr>
         <th>Fecha</th>${canSelect ? '<th></th>' : ''}<th>Orden</th><th>Cliente</th><th>Producto a preparar</th>${isAdmin ? '<th>Proveedor</th>' : ''}
-        <th>Reclamo</th><th>Confirmación</th><th>Estados</th><th>Cant.</th>${showCost ? '<th>Costo</th>' : ''}<th>Entrega</th>
-      </tr></thead><tbody><tr><td colspan="11" class="muted">Cargando…</td></tr></tbody></table></div>
+        <th>Reclamo</th><th>Confirmación</th><th>Estados</th><th>Cant.</th>${showCost ? '<th>Costo</th>' : ''}<th>Entrega</th>${canSelect ? '<th>Acción</th>' : ''}
+      </tr></thead><tbody><tr><td colspan="12" class="muted">Cargando…</td></tr></tbody></table></div>
     </div>`;
 
   // Total a pagar/cobrar (no se muestra al proveedor: es información de administración)
@@ -293,7 +304,7 @@ async function viewOrders() {
   async function loadOrders(qs) {
     const rows = await API.get('/orders' + (qs ? '?' + qs : ''));
     const tb = document.querySelector('#ordersTable tbody');
-    const cols = (canSelect ? 1 : 0) + 9 + (isAdmin ? 1 : 0) + (showCost ? 1 : 0);
+    const cols = (canSelect ? 2 : 0) + 9 + (isAdmin ? 1 : 0) + (showCost ? 1 : 0);
     if (!rows.length) { tb.innerHTML = `<tr><td colspan="${cols || 10}" class="muted">Sin resultados.</td></tr>`; return; }
     tb.innerHTML = rows.map((o) => {
       const states = (o.states || []).map((s) => stateBadge(s)).join(' ');
@@ -309,7 +320,8 @@ async function viewOrders() {
         <td><div class="pill-row">${states || '—'}</div></td>
         <td>${o.total_qty}</td>
         ${showCost ? `<td>${o.cost_total > 0 ? money(o.cost_total) : '<span class="badge b-amber">Sin costo</span>'}</td>` : ''}
-        <td>${o.eta ? fdate(o.eta) : '<span class="badge b-amber">Sin fecha</span>'}</td></tr>`;
+        <td>${o.eta ? fdate(o.eta) : '<span class="badge b-amber">Sin fecha</span>'}</td>
+        ${canSelect ? `<td><button class="btn small ok" onclick="event.stopPropagation();quickDeliver(${o.id})">✅ Entregado</button></td>` : ''}</tr>`;
     }).join('');
     tb.querySelectorAll('tr[data-id]').forEach((tr) =>
       (tr.onclick = () => (location.hash = '#/orders/' + tr.dataset.id)));
