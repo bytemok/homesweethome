@@ -134,13 +134,15 @@ router.post('/lines/:lineId/state', requireRole('proveedor', 'admin'), (req, res
   if (state === 'demorado' && !delay_reason) return res.status(400).json({ error: 'Indique el motivo de la demora' });
 
   const newState = state || line.state;
-  // "Terminado" da por hecha toda la cantidad; "En fabricación" => avance 50% por defecto.
+  // "Terminado" da por hecha la cantidad; "Entregado/Despachado" además marca la entrega.
   let newQtyDone = qty_done != null ? +qty_done : line.qty_done;
+  let newQtyDelivered = line.qty_delivered;
   let newProgress = progress != null ? +progress : line.progress;
   if (newState === 'terminado') { newQtyDone = line.qty; newProgress = 100; }
+  else if (newState === 'recibido_completo' || newState === 'despachado') { newQtyDone = line.qty; newQtyDelivered = line.qty; newProgress = 100; }
   else if (newState === 'en_produccion' && !newProgress) newProgress = 50;
-  db.prepare('UPDATE order_lines SET state=?, progress=?, delay_reason=?, qty_done=? WHERE id=?')
-    .run(newState, newProgress, delay_reason || null, newQtyDone, line.id);
+  db.prepare('UPDATE order_lines SET state=?, progress=?, delay_reason=?, qty_done=?, qty_delivered=? WHERE id=?')
+    .run(newState, newProgress, delay_reason || null, newQtyDone, newQtyDelivered, line.id);
 
   audit(req, { entity: 'order_lines', entity_id: line.id, order_id: o.id, field: 'state',
     old_value: line.state, new_value: newState, action: 'update' });

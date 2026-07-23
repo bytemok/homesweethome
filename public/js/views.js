@@ -24,8 +24,11 @@ async function viewOrderDetail(id) {
   const body = document.getElementById('detailBody');
 
   // --- Cabecera del pedido ---
-  let head = isUrgentChannel(o.store, o.client_name)
-    ? '<div class="alertbox danger" style="font-weight:800;font-size:16px">🔴 MERCADO LIBRE — PEDIDO URGENTE</div>' : '';
+  let head = '';
+  if (o.priority === 'urgente')
+    head += '<div class="alertbox danger" style="font-weight:800;font-size:16px">🔴 PEDIDO RECLAMADO</div>';
+  if (isUrgentChannel(o.store, o.client_name))
+    head += '<div class="alertbox danger" style="font-weight:800;font-size:16px">🔴 MERCADO LIBRE — URGENTE</div>';
   head += `<div class="panel"><h2>Datos del pedido ${channelBadge(o.store, o.client_name)}</h2>
     <div class="specs">
       <div class="spec"><b>Orden</b>${esc(o.order_number)}</div>
@@ -134,10 +137,9 @@ function adminOrderPanel(o) {
     <div class="grid2">
       <div><label class="lab">Asignar proveedor</label>
         <div class="btnrow"><select id="assignSel" style="flex:1"></select><button class="btn small" id="assignBtn">Asignar</button></div></div>
-      <div><label class="lab">Prioridad</label>
-        <div class="btnrow"><select id="prioSel" style="flex:1">
-          ${['baja', 'normal', 'alta', 'urgente'].map((x) => `<option ${o.priority === x ? 'selected' : ''}>${x}</option>`).join('')}
-        </select><button class="btn small" id="prioBtn">Guardar</button></div></div>
+      <div><label class="lab">Reclamo del cliente</label>
+        <button class="btn small ${o.priority === 'urgente' ? 'danger' : 'ghost'}" id="prioBtn" data-recl="${o.priority === 'urgente' ? 1 : 0}">
+          ${o.priority === 'urgente' ? '🔴 RECLAMADO — quitar reclamo' : 'Marcar como RECLAMADO'}</button></div>
     </div>
     <h3>💰 Rentabilidad (solo administración)</h3>
     <div class="specs">
@@ -185,11 +187,14 @@ function linePanel(o, l, { isAdmin, isProv }) {
 }
 
 function statePanel(l) {
-  // Estados simples para el proveedor. Si el estado actual es otro (ej recibido), se muestra igual.
-  const SIMPLE = [['en_produccion', 'En fabricación'], ['terminado', 'Terminado / listo para entregar'], ['demorado', 'Demorado']];
-  const known = SIMPLE.some(([v]) => v === l.state);
-  const opts = SIMPLE.map(([v, t]) => `<option value="${v}" ${l.state === v ? 'selected' : ''}>${t}</option>`).join('')
-    + (known ? '' : `<option value="${l.state}" selected>${esc((API.meta?.stateLabels || {})[l.state] || l.state)}</option>`);
+  // Estados simples para el proveedor: no empezado / en fabricación / entregado.
+  const SIMPLE = [['nuevo', 'Pedido no empezado'], ['en_produccion', 'Pedido en fabricación'],
+    ['recibido_completo', 'Entregado']];
+  // Mapear cualquier estado interno a uno de los 3.
+  const delivered = ['recibido_completo', 'recibido_parcial', 'despachado', 'listo_retiro', 'embalado'];
+  const producing = ['en_produccion', 'en_tapiceria', 'en_terminacion', 'pendiente_materiales', 'terminado', 'confirmado', 'demorado', 'con_problema'];
+  const cur = delivered.includes(l.state) ? 'recibido_completo' : (producing.includes(l.state) ? 'en_produccion' : 'nuevo');
+  const opts = SIMPLE.map(([v, t]) => `<option value="${v}" ${cur === v ? 'selected' : ''}>${t}</option>`).join('');
   return `<h3>Estado</h3>
     <div class="field"><label class="lab">Estado de fabricación</label>
       <select class="st_state" style="font-size:16px;max-width:360px">${opts}</select></div>
@@ -198,6 +203,9 @@ function statePanel(l) {
     <div class="grid2 st_delaybox hidden">
       <div><label class="lab">Motivo de la demora</label><input class="st_delay" value="${esc(l.delay_reason || '')}"></div>
       <div><label class="lab">Nueva fecha de posible entrega</label><input type="date" class="st_neweta"></div>
+    </div>
+    <div class="grid2 st_deliverbox hidden">
+      <div><label class="lab">Fecha de entrega</label><input type="date" class="st_realdate" style="font-size:16px"></div>
     </div>
     <button class="btn" onclick="saveState(${l.id}, this)">Guardar estado</button>`;
 }
@@ -272,13 +280,24 @@ function wireOrderDetail(o, ctx) {
     const ab = document.getElementById('assignBtn');
     if (ab) ab.onclick = async () => { await API.post(`/orders/${o.id}/assign`, { supplier_id: +document.getElementById('assignSel').value }); toast('Proveedor asignado', 'ok'); viewOrderDetail(o.id); };
     const pb = document.getElementById('prioBtn');
-    if (pb) pb.onclick = async () => { await API.post(`/orders/${o.id}/general`, { priority: document.getElementById('prioSel').value }); toast('Prioridad guardada', 'ok'); };
+    if (pb) pb.onclick = async () => {
+      const nowRecl = pb.dataset.recl === '1';
+      await API.post(`/orders/${o.id}/general`, { priority: nowRecl ? 'normal' : 'urgente' });
+      toast(nowRecl ? 'Reclamo quitado' : 'Marcado como RECLAMADO', 'ok'); viewOrderDetail(o.id);
+    };
   }
   // demora toggle + cost auto-calc
   document.querySelectorAll('[data-line]').forEach((panel) => {
     const st = panel.querySelector('.st_state');
-    const box = panel.querySelector('.st_delaybox');
-    if (st && box) { const upd = () => box.classList.toggle('hidden', st.value !== 'demorado'); st.onchange = upd; upd(); }
+    const dbox = panel.querySelector('.st_delaybox');
+    const vbox = panel.querySelector('.st_deliverbox');
+    if (st) {
+      const upd = () => {
+        if (dbox) dbox.classList.toggle('hidden', st.value !== 'demorado');
+        if (vbox) vbox.classList.toggle('hidden', st.value !== 'recibido_completo');
+      };
+      st.onchange = upd; upd();
+    }
     const recalc = () => {
       const g = (c) => +(panel.querySelector('.c_' + c)?.value || 0);
       const total = g('unit_cost') * (+panel.querySelector('.c_qty')?.value || 0) + g('extras_cost') + g('legs_cost') + g('fabric_cost') + g('packaging_cost') + g('shipping_cost') + g('other_cost');
@@ -326,8 +345,16 @@ async function saveState(lineId, btn) {
     qty_done: +p.querySelector('.st_qtydone').value,
   };
   if (body.state === 'demorado') { body.delay_reason = p.querySelector('.st_delay').value; body.new_eta = p.querySelector('.st_neweta').value; }
-  try { await API.post(`/orders/lines/${lineId}/state`, body); toast('Estado actualizado', 'ok'); }
-  catch (e) { toast(e.message, 'err'); }
+  try {
+    await API.post(`/orders/lines/${lineId}/state`, body);
+    // Si es "Entregado", guardar la fecha de entrega
+    const realDate = p.querySelector('.st_realdate')?.value;
+    if (body.state === 'recibido_completo' && realDate) {
+      await API.post('/deliveries/' + currentOrderId(), { real_date: realDate });
+    }
+    toast('Estado actualizado', 'ok');
+    viewOrderDetail(currentOrderId());
+  } catch (e) { toast(e.message, 'err'); }
 }
 async function saveCost(lineId, btn) {
   const p = btn.closest('[data-line]');

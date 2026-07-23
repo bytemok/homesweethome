@@ -199,7 +199,7 @@ async function viewOrders() {
         <label class="lab" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="f_delayed" style="width:auto" ${q.delayed ? 'checked' : ''}> Demorados</label>
         <label class="lab" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="f_nocost" style="width:auto" ${q.no_cost ? 'checked' : ''}> Sin costo</label>
         <label class="lab" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="f_nodate" style="width:auto" ${q.no_date ? 'checked' : ''}> Sin fecha</label>
-        <label class="lab" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="f_urgent" style="width:auto" ${q.urgent ? 'checked' : ''}> Urgentes</label>
+        <label class="lab" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="f_urgent" style="width:auto" ${q.urgent ? 'checked' : ''}> Reclamados</label>
       </div>
       <div class="btnrow" style="margin-bottom:8px">
         <button class="btn small" id="applyF">Filtrar</button>
@@ -208,7 +208,7 @@ async function viewOrders() {
       </div>
       <div class="table-wrap"><table id="ordersTable"><thead><tr>
         ${isAdmin ? '<th></th>' : ''}<th>Orden</th><th>Cliente</th><th>Producto a preparar</th>${isAdmin ? '<th>Proveedor</th>' : ''}
-        <th>Prioridad</th><th>Confirmación</th><th>Estados</th><th>Cant.</th><th>Entrega</th>
+        <th>Reclamo</th><th>Confirmación</th><th>Estados</th><th>Cant.</th><th>Entrega</th>
       </tr></thead><tbody><tr><td colspan="10" class="muted">Cargando…</td></tr></tbody></table></div>
     </div>`;
 

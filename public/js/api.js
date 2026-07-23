@@ -87,9 +87,9 @@ function isUrgentChannel(store, clientName) {
   return /mercado ?libre|meli|(^|[^a-z])ml([^a-z]|$)/.test(t);
 }
 function prioBadge(p) {
-  if (p === 'urgente') return '<span class="badge prio-urgente">Urgente</span>';
-  if (p === 'alta') return '<span class="badge prio-alta">Alta</span>';
-  return `<span class="badge b-gray">${esc(p)}</span>`;
+  // Solo se marca lo RECLAMADO (prioridad urgente). El resto no muestra nada.
+  if (p === 'urgente') return '<span class="badge" style="background:#e11900;color:#fff;font-weight:700">RECLAMADO</span>';
+  return '';
 }
 
 // ---------- Idle logout ----------
