@@ -16,7 +16,7 @@ async function viewOrderDetail(id) {
       <h1>Pedido ${esc(o.order_number)} ${prioBadge(o.priority)}</h1>
       <div class="btnrow">
         <button class="btn small secondary" onclick="openLabelWindow('/labels/order/${o.id}?mode=order')">🏷️ Etiquetas</button>
-        ${(isAdmin || API.user.role === 'deposito') ? `<button class="btn small ok" onclick="markDelivered(${o.id})">✅ Marcar entregado</button>` : ''}
+        ${(isAdmin || isProv || API.user.role === 'deposito') ? `<button class="btn small ok" onclick="markDelivered(${o.id})">✅ Entregar</button>` : ''}
         <button class="btn small ghost" onclick="printMenu(${o.id})">⋯</button>
       </div>
     </div>
@@ -83,8 +83,8 @@ async function viewOrderDetail(id) {
       <button class="btn small" id="sendComment">Enviar</button>
     </div></div>`;
 
-  // --- Historial ---
-  const histHtml = `<div class="panel"><h2>🕓 Historial de cambios</h2>
+  // --- Historial (el proveedor no lo ve) ---
+  const histHtml = isProv ? '' : `<div class="panel"><h2>🕓 Historial de cambios</h2>
     <div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Usuario</th><th>Acción</th><th>Campo</th><th>Anterior</th><th>Nuevo</th></tr></thead>
     <tbody>${(o.history || []).map((h) => `<tr><td>${fdatetime(h.created_at)}</td><td>${esc(h.user_name || '—')}</td>
       <td>${esc(h.action || '')}</td><td>${esc(h.field || '')}</td><td class="muted">${esc(h.old_value || '')}</td><td>${esc(h.new_value || '')}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Sin cambios registrados.</td></tr>'}</tbody></table></div></div>`;
@@ -174,7 +174,7 @@ function linePanel(o, l, { isAdmin, isProv }) {
     ${highlight('hl-notes', 'Observaciones del producto', l.notes)}
     ${l.image_url ? `<img src="${esc(l.image_url)}" style="max-width:180px;border-radius:8px;margin-top:8px">` : ''}
 
-    ${canEdit ? statePanel(l) : ''}
+    ${canEdit ? statePanel(l, isAdmin) : ''}
     ${canEdit ? costPanel(l, cost, isAdmin) : (cost ? costReadOnly(cost) : '')}
 
     <div class="btnrow" style="margin-top:10px">
@@ -186,15 +186,21 @@ function linePanel(o, l, { isAdmin, isProv }) {
   </div>`;
 }
 
-function statePanel(l) {
-  // Estados simples para el proveedor: no empezado / en fabricación / entregado.
-  const SIMPLE = [['nuevo', 'Pedido no empezado'], ['en_produccion', 'Pedido en fabricación'],
-    ['recibido_completo', 'Entregado']];
-  // Mapear cualquier estado interno a uno de los 3.
-  const delivered = ['recibido_completo', 'recibido_parcial', 'despachado', 'listo_retiro', 'embalado'];
-  const producing = ['en_produccion', 'en_tapiceria', 'en_terminacion', 'pendiente_materiales', 'terminado', 'confirmado', 'demorado', 'con_problema'];
-  const cur = delivered.includes(l.state) ? 'recibido_completo' : (producing.includes(l.state) ? 'en_produccion' : 'nuevo');
-  const opts = SIMPLE.map(([v, t]) => `<option value="${v}" ${cur === v ? 'selected' : ''}>${t}</option>`).join('');
+function statePanel(l, isAdmin) {
+  let opts;
+  if (isAdmin) {
+    // Administración: control completo con todos los estados.
+    const states = API.meta?.states || [];
+    opts = states.map((s) => `<option value="${s}" ${l.state === s ? 'selected' : ''}>${esc(API.meta.stateLabels[s])}</option>`).join('');
+  } else {
+    // Proveedor: simple, 3 pasos. Se mapea cualquier estado interno a uno de los 3.
+    const SIMPLE = [['nuevo', 'Pedido no empezado'], ['en_produccion', 'Pedido en fabricación'],
+      ['recibido_completo', 'Entregado']];
+    const delivered = ['recibido_completo', 'recibido_parcial', 'despachado', 'listo_retiro', 'embalado'];
+    const producing = ['en_produccion', 'en_tapiceria', 'en_terminacion', 'pendiente_materiales', 'terminado', 'confirmado', 'demorado', 'con_problema'];
+    const cur = delivered.includes(l.state) ? 'recibido_completo' : (producing.includes(l.state) ? 'en_produccion' : 'nuevo');
+    opts = SIMPLE.map(([v, t]) => `<option value="${v}" ${cur === v ? 'selected' : ''}>${t}</option>`).join('');
+  }
   return `<h3>Estado</h3>
     <div class="field"><label class="lab">Estado de fabricación</label>
       <select class="st_state" style="font-size:16px;max-width:360px">${opts}</select></div>
@@ -381,10 +387,24 @@ async function saveDelivery(orderId, btn) {
 }
 const currentOrderId = () => +(location.hash.match(/orders\/(\d+)/) || [])[1];
 
-async function markDelivered(orderId) {
-  if (!(await confirmAction('¿Marcar este pedido como ENTREGADO? Sale de la lista de pendientes y pasa a "Entregados".'))) return;
-  try { await API.post('/orders/' + orderId + '/deliver'); toast('Marcado como entregado', 'ok'); viewOrderDetail(orderId); }
-  catch (e) { toast(e.message, 'err'); }
+function markDelivered(orderId) {
+  const today = new Date().toISOString().slice(0, 10);
+  const back = document.createElement('div'); back.className = 'modal-back';
+  back.innerHTML = `<div class="modal"><h2>✅ Marcar como entregado</h2>
+    <div class="field"><label class="lab">Fecha de entrega</label>
+      <input type="date" id="delivDate" value="${today}" style="font-size:18px"></div>
+    <div class="btnrow" style="justify-content:flex-end">
+      <button class="btn ghost" onclick="this.closest('.modal-back').remove()">Cancelar</button>
+      <button class="btn ok" onclick="submitDeliver(${orderId})">Confirmar entrega</button></div></div>`;
+  document.body.appendChild(back);
+}
+async function submitDeliver(orderId) {
+  const date = document.getElementById('delivDate').value;
+  try {
+    await API.post('/orders/' + orderId + '/deliver', { date });
+    document.querySelector('.modal-back')?.remove();
+    toast('Pedido entregado', 'ok'); viewOrderDetail(orderId);
+  } catch (e) { toast(e.message, 'err'); }
 }
 
 function printMenu(orderId) {

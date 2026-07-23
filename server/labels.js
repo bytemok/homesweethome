@@ -1,6 +1,8 @@
 'use strict';
 // Generación de etiquetas PDF de tamaño físico EXACTO 100 x 80 mm.
 // Compatible con impresoras térmicas (Zebra ZD220, 203 dpi). Sin márgenes.
+const fs = require('fs');
+const path = require('path');
 const PDFDocument = require('pdfkit');
 const bwipjs = require('bwip-js');
 
@@ -8,6 +10,11 @@ const MM = 72 / 25.4;                 // 1 mm en puntos PDF
 const mm = (v) => v * MM;
 const PAGE_W = mm(100);
 const PAGE_H = mm(80);
+
+// Logo opcional: si existe public/logo.png (o .jpg) se usa en la etiqueta.
+const LOGO_PATH = ['logo.png', 'logo.jpg', 'logo.jpeg']
+  .map((f) => path.join(__dirname, '..', 'public', f))
+  .find((p) => fs.existsSync(p)) || null;
 
 // Genera un buffer PNG de código de barras / QR ------------------------------
 async function barcode(text, type = 'code128', opts = {}) {
@@ -84,10 +91,16 @@ async function drawLabel(doc, d) {
   ]);
 
   // --- Cabecera: logo + QR -------------------------------------------------
-  doc.font('Helvetica-Bold').fontSize(11).fillColor('#5a2d0c')
-    .text('TODO EN MUEBLES', pad, mm(2.5), { width: mm(60) });
-  doc.font('Helvetica').fontSize(6).fillColor('#666')
-    .text('Portal de Proveedores', pad, mm(7.5));
+  let logoOk = false;
+  if (LOGO_PATH) {
+    try { doc.image(LOGO_PATH, pad, mm(2), { fit: [mm(52), mm(11)] }); logoOk = true; } catch (e) { logoOk = false; }
+  }
+  if (!logoOk) {
+    doc.font('Helvetica-Bold').fontSize(11).fillColor('#111')
+      .text('TODO EN MUEBLES', pad, mm(2.5), { width: mm(60) });
+    doc.font('Helvetica').fontSize(6).fillColor('#666')
+      .text('Portal de Proveedores', pad, mm(7.5));
+  }
 
   if (qr) doc.image(qr, PAGE_W - pad - mm(16), mm(2), { width: mm(16), height: mm(16) });
 

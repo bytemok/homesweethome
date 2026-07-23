@@ -105,6 +105,23 @@ function resetIdle() {
 ['click', 'keydown', 'mousemove', 'touchstart'].forEach((e) =>
   document.addEventListener(e, resetIdle, { passive: true }));
 
+// ---------- Date prompt modal ----------
+function askDate(title, initial) {
+  return new Promise((resolve) => {
+    const today = initial || new Date().toISOString().slice(0, 10);
+    const back = document.createElement('div');
+    back.className = 'modal-back';
+    back.innerHTML = `<div class="modal"><h2>${esc(title)}</h2>
+      <div class="field"><input type="date" id="__askdate" value="${today}" style="font-size:18px"></div>
+      <div class="btnrow" style="justify-content:flex-end">
+      <button class="btn ghost" id="__dno">Cancelar</button>
+      <button class="btn" id="__dyes">Aceptar</button></div></div>`;
+    document.body.appendChild(back);
+    back.querySelector('#__dno').onclick = () => { back.remove(); resolve(null); };
+    back.querySelector('#__dyes').onclick = () => { const v = back.querySelector('#__askdate').value; back.remove(); resolve(v || null); };
+  });
+}
+
 // ---------- Confirm modal ----------
 function confirmAction(message) {
   return new Promise((resolve) => {

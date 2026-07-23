@@ -15,6 +15,21 @@ function scope(user) {
 }
 
 // GET /api/dashboard/cards — tarjetas del panel del proveedor/admin --------
+// GET /api/dashboard/owed — total a pagar (aprobado + pendiente de aprobación) --
+router.get('/owed', (req, res) => {
+  const s = scope(req.user);
+  const row = db.prepare(`
+    SELECT
+      COALESCE(SUM(CASE WHEN lc.status='aprobado' THEN lc.total_cost ELSE 0 END),0) AS aprobado,
+      COALESCE(SUM(CASE WHEN lc.status<>'aprobado' THEN lc.total_cost ELSE 0 END),0) AS pendiente
+    FROM line_costs lc
+    JOIN order_lines l ON l.id=lc.line_id
+    JOIN orders o ON o.id=l.order_id
+    WHERE lc.id=(SELECT MAX(id) FROM line_costs WHERE line_id=lc.line_id) ${s.clause}
+  `).get({ sid: s.sid });
+  res.json({ aprobado: row.aprobado, pendiente: row.pendiente, total: row.aprobado + row.pendiente });
+});
+
 router.get('/cards', (req, res) => {
   const s = scope(req.user);
   const q = (sql) => db.prepare(sql).get({ sid: s.sid }).n;

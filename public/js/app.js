@@ -6,13 +6,13 @@ const app = () => document.getElementById('app');
 // ---- Navegación por rol ----------------------------------------------------
 const NAV = {
   admin: [
-    ['#/', '🏠', 'Inicio'], ['#/orders', '📋', 'Pedidos'], ['#/orders?entregados=1', '✅', 'Entregados'],
+    ['#/', '🏠', 'Inicio'], ['#/orders', '📋', 'Pedidos'], ['#/orders?tab=entregados', '✅', 'Entregados'],
     ['#/admin/costs', '💲', 'Costos'], ['#/admin', '📊', 'Panel'], ['#/ranking', '🏆', 'Ranking'],
     ['#/reception', '📦', 'Recepción'], ['#/calendar', '📅', 'Calendario'], ['#/admin/users', '👥', 'Usuarios'],
     ['#/admin/audit', '🕓', 'Auditoría'], ['#/admin/sync', '🔄', 'Odoo'],
   ],
   proveedor: [
-    ['#/', '🏠', 'Inicio'], ['#/orders', '📋', 'Pedidos'], ['#/orders?entregados=1', '✅', 'Entregados'],
+    ['#/', '🏠', 'Inicio'], ['#/orders', '📋', 'Pedidos'], ['#/orders?tab=entregados', '✅', 'Entregados'],
     ['#/calendar', '📅', 'Entregas'], ['#/notifications', '🔔', 'Avisos'],
   ],
   deposito: [
@@ -148,14 +148,14 @@ function renderLogin() {
 //  DASHBOARD (tarjetas)
 // ============================================================================
 const CARD_DEFS = [
-  ['a_fabricar', 'Pedidos a fabricar', '#/orders'],
-  ['en_fabricacion', 'En fabricación', '#/orders'],
-  ['demorados', 'Demorados', '#/orders?delayed=1', true],
-  ['terminados', 'Terminados (a entregar)', '#/orders'],
-  ['entregados', 'Entregados', '#/orders?entregados=1'],
-  ['sin_costo', 'Sin costo cargado', '#/orders?no_cost=1', true],
-  ['sin_fecha', 'Sin fecha estimada', '#/orders?no_date=1', true],
-  ['productos_pendientes', 'Productos pendientes', '#/orders'],
+  ['a_fabricar', 'Pedidos a fabricar', '#/orders?tab=fabricar'],
+  ['en_fabricacion', 'En fabricación', '#/orders?tab=fabricar'],
+  ['demorados', 'Demorados', '#/orders?tab=fabricar&delayed=1', true],
+  ['terminados', 'Terminados (a entregar)', '#/orders?tab=enviar'],
+  ['entregados', 'Entregados', '#/orders?tab=entregados'],
+  ['sin_costo', 'Sin costo cargado', '#/orders?tab=all&no_cost=1', true],
+  ['sin_fecha', 'Sin fecha estimada', '#/orders?tab=all&no_date=1', true],
+  ['productos_pendientes', 'Productos pendientes', '#/orders?tab=all'],
 ];
 async function viewDashboard() {
   setTitle('Inicio');
@@ -180,13 +180,24 @@ function parseQuery(hash) {
   if (i >= 0) new URLSearchParams(hash.slice(i + 1)).forEach((v, k) => (q[k] = v));
   return q;
 }
+const ORDER_TABS = [
+  ['fabricar', 'Pendientes de fabricación'],
+  ['enviar', 'Próximos a enviar'],
+  ['entregados', 'Entregados'],
+];
 async function viewOrders() {
   const q = parseQuery(location.hash);
-  const heading = q.entregados ? 'Entregados' : 'Pedidos a fabricar';
+  const tab = q.tab || (q.entregados ? 'entregados' : 'fabricar');
+  const heading = (ORDER_TABS.find((t) => t[0] === tab) || [, 'Pedidos'])[1];
   setTitle(heading);
   const isAdmin = API.user.role === 'admin';
+  const canSelect = isAdmin || API.user.role === 'proveedor';
+  const showCost = API.user.role !== 'proveedor'; // el proveedor no ve montos totales/rentabilidad
+  const tabsHtml = ORDER_TABS.map(([v, t]) =>
+    `<a href="#/orders?tab=${v}" class="btn small ${tab === v ? '' : 'ghost'}" style="text-decoration:none">${t}</a>`).join(' ');
   C().innerHTML = `
     <div class="section-title"><h1>${heading}</h1></div>
+    <div class="btnrow" style="margin-bottom:14px">${tabsHtml}</div>
     <div class="panel">
       <div class="filters">
         <input id="f_q" placeholder="Buscar (orden, cliente, producto)" value="${esc(q.q || '')}">
@@ -204,13 +215,27 @@ async function viewOrders() {
       <div class="btnrow" style="margin-bottom:8px">
         <button class="btn small" id="applyF">Filtrar</button>
         <button class="btn small ghost" id="clearF">Limpiar</button>
-        ${isAdmin ? '<button class="btn small secondary" id="printSel">🏷️ Imprimir seleccionados</button>' : ''}
+        ${canSelect ? '<button class="btn small secondary" id="printSel">🏷️ Imprimir seleccionados</button>' : ''}
+        ${canSelect ? '<button class="btn small ok" id="sendToday">📦 Enviar hoy</button>' : ''}
+        ${canSelect ? '<button class="btn small ok" id="bulkDeliver">✅ Marcar entregados</button>' : ''}
+        ${canSelect ? '<button class="btn small ghost" id="bulkDate">📅 Fijar fecha</button>' : ''}
       </div>
+      <div id="owedBox"></div>
       <div class="table-wrap"><table id="ordersTable"><thead><tr>
-        ${isAdmin ? '<th></th>' : ''}<th>Orden</th><th>Cliente</th><th>Producto a preparar</th>${isAdmin ? '<th>Proveedor</th>' : ''}
-        <th>Reclamo</th><th>Confirmación</th><th>Estados</th><th>Cant.</th><th>Entrega</th>
-      </tr></thead><tbody><tr><td colspan="10" class="muted">Cargando…</td></tr></tbody></table></div>
+        ${canSelect ? '<th></th>' : ''}<th>Orden</th><th>Vendido</th><th>Cliente</th><th>Producto a preparar</th>${isAdmin ? '<th>Proveedor</th>' : ''}
+        <th>Reclamo</th><th>Confirmación</th><th>Estados</th><th>Cant.</th>${showCost ? '<th>Costo</th>' : ''}<th>Entrega</th>
+      </tr></thead><tbody><tr><td colspan="11" class="muted">Cargando…</td></tr></tbody></table></div>
     </div>`;
+
+  // Total a pagar/cobrar (no se muestra al proveedor: es información de administración)
+  if (showCost) {
+    API.get('/dashboard/owed').then((o) => {
+      document.getElementById('owedBox').innerHTML = `<div class="alertbox warn" style="display:flex;gap:18px;flex-wrap:wrap">
+        <span><b>Total a pagar (aprobado):</b> ${money(o.aprobado)}</span>
+        <span><b>Pendiente de aprobación:</b> ${money(o.pendiente)}</span>
+        <span><b>Total comprometido:</b> ${money(o.total)}</span></div>`;
+    }).catch(() => {});
+  }
 
   const buildQ = () => {
     const p = new URLSearchParams();
@@ -220,26 +245,62 @@ async function viewOrders() {
     ['delayed:f_delayed', 'no_cost:f_nocost', 'no_date:f_nodate', 'urgent:f_urgent'].forEach((pair) => {
       const [key, id] = pair.split(':'); if (document.getElementById(id).checked) p.set(key, '1');
     });
-    if (q.entregados) p.set('entregados', '1'); // conservar la vista Entregados al filtrar
+    p.set('tab', tab); // conservar la pestaña activa al filtrar
     return p.toString();
   };
   document.getElementById('applyF').onclick = () => { location.hash = '#/orders?' + buildQ(); loadOrders(buildQ()); };
-  document.getElementById('clearF').onclick = () => { location.hash = '#/orders'; render(); };
-  if (isAdmin) document.getElementById('printSel').onclick = () => {
-    const ids = [...document.querySelectorAll('.selorder:checked')].map((c) => c.value);
+  document.getElementById('clearF').onclick = () => { location.hash = '#/orders?tab=' + tab; render(); };
+  const selectedIds = () => [...document.querySelectorAll('.selorder:checked')].map((c) => c.value);
+  if (canSelect) document.getElementById('printSel').onclick = () => {
+    const ids = selectedIds();
     if (!ids.length) return toast('Seleccioná al menos un pedido', 'err');
     openLabelWindow('/labels/multi?orders=' + ids.join(','));
+  };
+  if (canSelect) document.getElementById('sendToday').onclick = async () => {
+    const ids = selectedIds();
+    if (!ids.length) return toast('Seleccioná los pedidos a enviar', 'err');
+    if (!(await confirmAction(`¿Marcar ${ids.length} pedido(s) como ENVIADOS hoy? Se avisa a Todo en Muebles con el resumen y se generan las etiquetas.`))) return;
+    try {
+      const r = await API.post('/orders/dispatch', { order_ids: ids.map(Number) });
+      toast(`Enviados ${r.count} pedido(s). Resumen enviado a Todo en Muebles.`, 'ok');
+      openLabelWindow('/labels/multi?orders=' + ids.join(','));
+      loadOrders(buildQ());
+    } catch (e) { toast(e.message, 'err'); }
+  };
+  if (canSelect) document.getElementById('bulkDeliver').onclick = async () => {
+    const ids = selectedIds();
+    if (!ids.length) return toast('Seleccioná al menos un pedido', 'err');
+    const date = await askDate(`Marcar ${ids.length} pedido(s) como ENTREGADOS — fecha:`);
+    if (!date) return;
+    try {
+      const r = await API.post('/orders/bulk', { order_ids: ids.map(Number), action: 'deliver', date });
+      toast(`${r.count} pedido(s) marcados como entregados`, 'ok');
+      loadOrders(buildQ());
+    } catch (e) { toast(e.message, 'err'); }
+  };
+  if (canSelect) document.getElementById('bulkDate').onclick = async () => {
+    const ids = selectedIds();
+    if (!ids.length) return toast('Seleccioná al menos un pedido', 'err');
+    const date = await askDate(`Fijar fecha de entrega estimada para ${ids.length} pedido(s):`);
+    if (!date) return;
+    try {
+      const r = await API.post('/orders/bulk', { order_ids: ids.map(Number), action: 'set_date', date });
+      toast(`Fecha fijada en ${r.count} pedido(s)`, 'ok');
+      loadOrders(buildQ());
+    } catch (e) { toast(e.message, 'err'); }
   };
 
   async function loadOrders(qs) {
     const rows = await API.get('/orders' + (qs ? '?' + qs : ''));
     const tb = document.querySelector('#ordersTable tbody');
-    if (!rows.length) { tb.innerHTML = '<tr><td colspan="10" class="muted">Sin resultados.</td></tr>'; return; }
+    const cols = (canSelect ? 1 : 0) + 9 + (isAdmin ? 1 : 0) + (showCost ? 1 : 0);
+    if (!rows.length) { tb.innerHTML = `<tr><td colspan="${cols || 10}" class="muted">Sin resultados.</td></tr>`; return; }
     tb.innerHTML = rows.map((o) => {
       const states = (o.states || []).map((s) => stateBadge(s)).join(' ');
       return `<tr class="clickable" data-id="${o.id}">
-        ${isAdmin ? `<td><input type="checkbox" class="selorder" value="${o.id}" onclick="event.stopPropagation()" style="width:auto"></td>` : ''}
+        ${canSelect ? `<td><input type="checkbox" class="selorder" value="${o.id}" onclick="event.stopPropagation()" style="width:auto"></td>` : ''}
         <td><b>${esc(o.order_number)}</b> ${channelBadge(o.store, o.client_name)}</td>
+        <td class="muted">${o.sale_date ? fdate(o.sale_date) : '—'}</td>
         <td>${esc(o.client_name || '—')}</td>
         <td>${esc(o.first_product || '—')}${o.line_count > 1 ? ` <span class="muted">(+${o.line_count - 1})</span>` : ''}</td>
         ${isAdmin ? `<td>${esc(o.supplier_name || '<span style="color:#b00">Sin asignar</span>')}</td>` : ''}
@@ -247,12 +308,13 @@ async function viewOrders() {
         <td>${confBadge(o.confirmation)}</td>
         <td><div class="pill-row">${states || '—'}</div></td>
         <td>${o.total_qty}</td>
+        ${showCost ? `<td>${o.cost_total > 0 ? money(o.cost_total) : '<span class="badge b-amber">Sin costo</span>'}</td>` : ''}
         <td>${o.eta ? fdate(o.eta) : '<span class="badge b-amber">Sin fecha</span>'}</td></tr>`;
     }).join('');
     tb.querySelectorAll('tr[data-id]').forEach((tr) =>
       (tr.onclick = () => (location.hash = '#/orders/' + tr.dataset.id)));
   }
-  loadOrders(new URLSearchParams(q).toString());
+  loadOrders(buildQ());
 }
 
 // Abre etiquetas en pestaña nueva usando fetch (para pasar el token) ---------
