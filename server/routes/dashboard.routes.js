@@ -21,18 +21,20 @@ router.get('/cards', (req, res) => {
   const base = `FROM orders o WHERE 1=1 ${s.clause}`;
   const lineBase = `FROM order_lines l JOIN orders o ON o.id=l.order_id WHERE 1=1 ${s.clause}`;
 
+  // Un pedido está PENDIENTE si le queda alguna línea sin entregar (pick-in sin validar).
+  const PEND = `EXISTS (SELECT 1 FROM order_lines l WHERE l.order_id=o.id AND l.qty_delivered<l.qty AND l.state<>'cancelado')`;
+  const HAS = `EXISTS (SELECT 1 FROM order_lines l0 WHERE l0.order_id=o.id)`;
+  const has = (states) => `EXISTS (SELECT 1 FROM order_lines l WHERE l.order_id=o.id AND l.state IN (${states}))`;
+
   const cards = {
-    nuevos: q(`SELECT COUNT(*) n ${base} AND o.confirmation='nuevo'`),
-    sin_confirmar: q(`SELECT COUNT(*) n ${base} AND o.confirmation IN ('nuevo','recibido','aclaracion')`),
-    confirmados: q(`SELECT COUNT(*) n ${base} AND o.confirmation='confirmado'`),
-    en_fabricacion: q(`SELECT COUNT(DISTINCT o.id) n ${lineBase} AND l.state IN ('en_produccion','en_tapiceria','en_terminacion','pendiente_materiales')`),
-    demorados: q(`SELECT COUNT(DISTINCT o.id) n ${lineBase} AND l.state='demorado'`),
-    terminados: q(`SELECT COUNT(DISTINCT o.id) n ${lineBase} AND l.state='terminado'`),
-    listos: q(`SELECT COUNT(DISTINCT o.id) n ${lineBase} AND l.state IN ('embalado','listo_retiro')`),
-    entregados: q(`SELECT COUNT(DISTINCT o.id) n ${lineBase} AND l.state IN ('despachado','recibido_completo')`),
-    sin_costo: q(`SELECT COUNT(DISTINCT o.id) n ${lineBase} AND NOT EXISTS (SELECT 1 FROM line_costs lc WHERE lc.line_id=l.id)`),
-    sin_fecha: q(`SELECT COUNT(*) n ${base} AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.order_id=o.id AND d.estimated_date IS NOT NULL)`),
-    productos_pendientes: q(`SELECT COALESCE(SUM(l.qty - l.qty_delivered),0) n ${lineBase} AND l.state NOT IN ('recibido_completo','cancelado')`),
+    a_fabricar: q(`SELECT COUNT(*) n ${base} AND ${PEND}`),
+    en_fabricacion: q(`SELECT COUNT(*) n ${base} AND ${PEND} AND ${has("'en_produccion','en_tapiceria','en_terminacion','pendiente_materiales'")}`),
+    demorados: q(`SELECT COUNT(*) n ${base} AND ${PEND} AND ${has("'demorado'")}`),
+    terminados: q(`SELECT COUNT(*) n ${base} AND ${PEND} AND ${has("'terminado','embalado','listo_retiro'")}`),
+    entregados: q(`SELECT COUNT(*) n ${base} AND ${HAS} AND NOT ${PEND}`),
+    sin_costo: q(`SELECT COUNT(*) n ${base} AND ${PEND} AND EXISTS (SELECT 1 FROM order_lines l WHERE l.order_id=o.id AND l.qty_delivered<l.qty AND NOT EXISTS (SELECT 1 FROM line_costs lc WHERE lc.line_id=l.id))`),
+    sin_fecha: q(`SELECT COUNT(*) n ${base} AND ${PEND} AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.order_id=o.id AND d.estimated_date IS NOT NULL)`),
+    productos_pendientes: q(`SELECT COALESCE(SUM(l.qty - l.qty_delivered),0) n ${lineBase} AND l.state NOT IN ('recibido_completo','cancelado') AND l.qty_delivered<l.qty`),
   };
 
   // Próximas entregas (7 días)

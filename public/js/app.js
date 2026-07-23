@@ -144,14 +144,11 @@ function renderLogin() {
 //  DASHBOARD (tarjetas)
 // ============================================================================
 const CARD_DEFS = [
-  ['nuevos', 'Pedidos nuevos', '#/orders?confirmation=nuevo'],
-  ['sin_confirmar', 'Sin confirmar', '#/orders'],
-  ['confirmados', 'Confirmados', '#/orders?confirmation=confirmado'],
+  ['a_fabricar', 'Pedidos a fabricar', '#/orders'],
   ['en_fabricacion', 'En fabricación', '#/orders'],
   ['demorados', 'Demorados', '#/orders?delayed=1', true],
-  ['terminados', 'Terminados', '#/orders'],
-  ['listos', 'Listos para entregar', '#/orders'],
-  ['entregados', 'Entregados', '#/orders'],
+  ['terminados', 'Terminados (a entregar)', '#/orders'],
+  ['entregados', 'Entregados', '#/orders?entregados=1'],
   ['sin_costo', 'Sin costo cargado', '#/orders?no_cost=1', true],
   ['sin_fecha', 'Sin fecha estimada', '#/orders?no_date=1', true],
   ['productos_pendientes', 'Productos pendientes', '#/orders'],
