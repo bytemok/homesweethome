@@ -321,7 +321,7 @@ async function viewOrders() {
         <td>${o.total_qty}</td>
         ${showCost ? `<td>${o.cost_total > 0 ? money(o.cost_total) : '<span class="badge b-amber">Sin costo</span>'}</td>` : ''}
         <td>${o.eta ? fdate(o.eta) : '<span class="badge b-amber">Sin fecha</span>'}</td>
-        ${canSelect ? `<td><button class="btn small ok" onclick="event.stopPropagation();quickDeliver(${o.id})">✅ Entregado</button></td>` : ''}</tr>`;
+        ${canSelect ? `<td><button class="btn small ok" onclick="event.stopPropagation();quickDeliver(${o.id})">✅ Entregar</button></td>` : ''}</tr>`;
     }).join('');
     tb.querySelectorAll('tr[data-id]').forEach((tr) =>
       (tr.onclick = () => (location.hash = '#/orders/' + tr.dataset.id)));
