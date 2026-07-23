@@ -248,9 +248,20 @@ async function pullPurchaseOrders() {
       message: 'Modo mock: Odoo deshabilitado.' });
     return { imported: 0, assigned: 0, mode: 'mock' };
   }
+  // Detectar campos de "estado de entrega/recepción" disponibles en esta instancia
+  const poFieldsAvail = await execKw('purchase.order', 'fields_get', []).catch(() => ({}));
+  const soFieldsAvail = await execKw('sale.order', 'fields_get', []).catch(() => ({}));
+  const hasReceipt = 'receipt_status' in poFieldsAvail;   // pending/partial/full
+  const hasDelivery = 'delivery_status' in soFieldsAvail; // pending/partial/full
+
+  const poFields = ['name', 'partner_id', 'date_order', 'date_planned', 'origin', 'amount_total', 'partner_ref'];
+  if (hasReceipt) poFields.push('receipt_status');
+  const soFields = ['partner_id', 'amount_total', 'team_id', 'client_order_ref', 'commitment_date', 'date_order'];
+  if (hasDelivery) soFields.push('delivery_status');
+
   const pos = await execKw('purchase.order', 'search_read',
     [[['state', 'in', ['purchase', 'done']], ['origin', '!=', false]]],
-    { fields: ['name', 'partner_id', 'date_order', 'date_planned', 'origin', 'amount_total', 'partner_ref'], limit: 5000 });
+    { fields: poFields, limit: 5000 });
 
   let imported = 0, assigned = 0;
   for (const po of pos) {
@@ -272,10 +283,14 @@ async function pullPurchaseOrders() {
       const saleName = po.origin ? String(po.origin).split(',')[0].trim() : null;
       if (saleName) {
         const rows = await execKw('sale.order', 'search_read', [[['name', '=', saleName]]],
-          { fields: ['partner_id', 'amount_total', 'team_id', 'client_order_ref', 'commitment_date', 'date_order'], limit: 1 }).catch(() => []);
+          { fields: soFields, limit: 1 }).catch(() => []);
         so = rows && rows[0] ? rows[0] : null;
       }
       if (!so) continue; // sin venta asociada -> no va al portal del proveedor
+
+      // "Estado de entrega" de Odoo: entregado si la OC está recibida o la venta entregada.
+      const deliveredByOdoo = (hasReceipt && po.receipt_status === 'full')
+        || (hasDelivery && so.delivery_status === 'full');
 
       const saleTotal = typeof so.amount_total === 'number' ? so.amount_total : po.amount_total;
       const channel = [Array.isArray(so.team_id) ? so.team_id[1] : null,
@@ -348,6 +363,11 @@ async function pullPurchaseOrders() {
         db.prepare(`INSERT INTO order_lines (odoo_id, order_id, product_name, internal_code, barcode, qty, qty_delivered, state)
           VALUES (?,?,?,?,?,?,?,?)`).run(l.id, orderId, l.name, code, barcode, qty, received,
           fullyReceived ? 'recibido_completo' : 'nuevo');
+      }
+
+      // Si Odoo marca la entrega/recepción como completa, sacar el pedido de "a fabricar"
+      if (deliveredByOdoo) {
+        db.prepare("UPDATE order_lines SET qty_delivered=qty, state='recibido_completo' WHERE order_id=?").run(orderId);
       }
 
       // Fecha estimada desde la venta (sin pisar la que cargó el proveedor)

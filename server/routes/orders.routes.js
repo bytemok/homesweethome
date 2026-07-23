@@ -133,17 +133,14 @@ router.post('/lines/:lineId/state', requireRole('proveedor', 'admin'), (req, res
   if (state && !STATE_LABELS[state]) return res.status(400).json({ error: 'Estado inválido' });
   if (state === 'demorado' && !delay_reason) return res.status(400).json({ error: 'Indique el motivo de la demora' });
 
-  // Regla: no se puede marcar terminado sin completar la cantidad producida
-  if (state === 'terminado') {
-    const done = qty_done != null ? +qty_done : line.qty_done;
-    if (done < line.qty) return res.status(400).json({ error: 'No puede marcar Terminado sin completar la cantidad producida' });
-  }
-
   const newState = state || line.state;
-  const newProgress = progress != null ? +progress : line.progress;
+  // "Terminado" da por hecha toda la cantidad; "En fabricación" => avance 50% por defecto.
+  let newQtyDone = qty_done != null ? +qty_done : line.qty_done;
+  let newProgress = progress != null ? +progress : line.progress;
+  if (newState === 'terminado') { newQtyDone = line.qty; newProgress = 100; }
+  else if (newState === 'en_produccion' && !newProgress) newProgress = 50;
   db.prepare('UPDATE order_lines SET state=?, progress=?, delay_reason=?, qty_done=? WHERE id=?')
-    .run(newState, newProgress, delay_reason || null,
-      qty_done != null ? +qty_done : line.qty_done, line.id);
+    .run(newState, newProgress, delay_reason || null, newQtyDone, line.id);
 
   audit(req, { entity: 'order_lines', entity_id: line.id, order_id: o.id, field: 'state',
     old_value: line.state, new_value: newState, action: 'update' });

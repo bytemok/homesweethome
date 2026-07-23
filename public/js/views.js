@@ -57,8 +57,8 @@ async function viewOrderDetail(id) {
   // --- Fechas de entrega ---
   const deliveryHtml = deliveryPanel(o);
 
-  // --- Adjuntos ---
-  const filesHtml = `<div class="panel"><h2>📎 Documentación y archivos</h2>
+  // --- Adjuntos (el proveedor no sube nada acá; se oculta para proveedor) ---
+  const filesHtml = isProv ? '' : `<div class="panel"><h2>📎 Documentación y archivos</h2>
     <div class="btnrow" style="margin-bottom:10px">
       <select id="fileKind" style="max-width:180px">
         <option value="factura">Factura</option><option value="remito">Remito</option>
@@ -185,18 +185,21 @@ function linePanel(o, l, { isAdmin, isProv }) {
 }
 
 function statePanel(l) {
-  const states = API.meta?.states || [];
-  return `<h3>Estado de fabricación</h3>
-    <div class="grid3">
-      <div><label class="lab">Estado</label><select class="st_state">${states.map((s) => `<option value="${s}" ${l.state === s ? 'selected' : ''}>${esc(API.meta.stateLabels[s])}</option>`).join('')}</select></div>
-      <div><label class="lab">Avance</label><select class="st_progress">${[0, 25, 50, 75, 100].map((p) => `<option value="${p}" ${l.progress === p ? 'selected' : ''}>${p}%</option>`).join('')}</select></div>
-      <div><label class="lab">Cantidad terminada</label><input type="number" class="st_qtydone" value="${l.qty_done}" min="0" max="${l.qty}"></div>
-    </div>
+  // Estados simples para el proveedor. Si el estado actual es otro (ej recibido), se muestra igual.
+  const SIMPLE = [['en_produccion', 'En fabricación'], ['terminado', 'Terminado / listo para entregar'], ['demorado', 'Demorado']];
+  const known = SIMPLE.some(([v]) => v === l.state);
+  const opts = SIMPLE.map(([v, t]) => `<option value="${v}" ${l.state === v ? 'selected' : ''}>${t}</option>`).join('')
+    + (known ? '' : `<option value="${l.state}" selected>${esc((API.meta?.stateLabels || {})[l.state] || l.state)}</option>`);
+  return `<h3>Estado</h3>
+    <div class="field"><label class="lab">Estado de fabricación</label>
+      <select class="st_state" style="font-size:16px;max-width:360px">${opts}</select></div>
+    <input type="hidden" class="st_progress" value="${l.progress || 0}">
+    <input type="hidden" class="st_qtydone" value="${l.qty_done || 0}">
     <div class="grid2 st_delaybox hidden">
       <div><label class="lab">Motivo de la demora</label><input class="st_delay" value="${esc(l.delay_reason || '')}"></div>
-      <div><label class="lab">Nueva fecha estimada</label><input type="date" class="st_neweta"></div>
+      <div><label class="lab">Nueva fecha de posible entrega</label><input type="date" class="st_neweta"></div>
     </div>
-    <button class="btn small" onclick="saveState(${l.id}, this)">Guardar estado</button>`;
+    <button class="btn" onclick="saveState(${l.id}, this)">Guardar estado</button>`;
 }
 
 function costPanel(l, cost, isAdmin) {
