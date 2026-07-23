@@ -73,6 +73,19 @@ function confBadge(c) {
   const lbl = (API.meta?.confirmationLabels || {})[c] || c;
   return `<span class="badge ${map[c] || 'b-gray'}">${esc(lbl)}</span>`;
 }
+// Marca de canal: Mercado Libre (rojo/urgente) o Tienda Nube ----------------
+function channelBadge(store, clientName) {
+  const t = ((store || '') + ' ' + (clientName || '')).toLowerCase();
+  if (/mercado ?libre|meli|(^|[^a-z])ml([^a-z]|$)/.test(t))
+    return '<span class="badge" style="background:#e11900;color:#fff">ML</span>';
+  if (/tienda ?nube|tiendanube/.test(t))
+    return '<span class="badge" style="background:#6236ff;color:#fff">TN</span>';
+  return '';
+}
+function isUrgentChannel(store, clientName) {
+  const t = ((store || '') + ' ' + (clientName || '')).toLowerCase();
+  return /mercado ?libre|meli|(^|[^a-z])ml([^a-z]|$)/.test(t);
+}
 function prioBadge(p) {
   if (p === 'urgente') return '<span class="badge prio-urgente">Urgente</span>';
   if (p === 'alta') return '<span class="badge prio-alta">Alta</span>';

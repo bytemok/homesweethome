@@ -206,9 +206,9 @@ async function viewOrders() {
         ${isAdmin ? '<button class="btn small secondary" id="printSel">🏷️ Imprimir seleccionados</button>' : ''}
       </div>
       <div class="table-wrap"><table id="ordersTable"><thead><tr>
-        ${isAdmin ? '<th></th>' : ''}<th>Orden</th><th>Cliente</th>${isAdmin ? '<th>Proveedor</th>' : ''}
-        <th>Prioridad</th><th>Confirmación</th><th>Estados</th><th>Prod.</th><th>Entrega</th>
-      </tr></thead><tbody><tr><td colspan="9" class="muted">Cargando…</td></tr></tbody></table></div>
+        ${isAdmin ? '<th></th>' : ''}<th>Orden</th><th>Cliente</th><th>Producto a preparar</th>${isAdmin ? '<th>Proveedor</th>' : ''}
+        <th>Prioridad</th><th>Confirmación</th><th>Estados</th><th>Cant.</th><th>Entrega</th>
+      </tr></thead><tbody><tr><td colspan="10" class="muted">Cargando…</td></tr></tbody></table></div>
     </div>`;
 
   const buildQ = () => {
@@ -233,13 +233,14 @@ async function viewOrders() {
   async function loadOrders(qs) {
     const rows = await API.get('/orders' + (qs ? '?' + qs : ''));
     const tb = document.querySelector('#ordersTable tbody');
-    if (!rows.length) { tb.innerHTML = '<tr><td colspan="9" class="muted">Sin resultados.</td></tr>'; return; }
+    if (!rows.length) { tb.innerHTML = '<tr><td colspan="10" class="muted">Sin resultados.</td></tr>'; return; }
     tb.innerHTML = rows.map((o) => {
       const states = (o.states || []).map((s) => stateBadge(s)).join(' ');
       return `<tr class="clickable" data-id="${o.id}">
         ${isAdmin ? `<td><input type="checkbox" class="selorder" value="${o.id}" onclick="event.stopPropagation()" style="width:auto"></td>` : ''}
-        <td><b>${esc(o.order_number)}</b></td>
+        <td><b>${esc(o.order_number)}</b> ${channelBadge(o.store, o.client_name)}</td>
         <td>${esc(o.client_name || '—')}</td>
+        <td>${esc(o.first_product || '—')}${o.line_count > 1 ? ` <span class="muted">(+${o.line_count - 1})</span>` : ''}</td>
         ${isAdmin ? `<td>${esc(o.supplier_name || '<span style="color:#b00">Sin asignar</span>')}</td>` : ''}
         <td>${prioBadge(o.priority)}</td>
         <td>${confBadge(o.confirmation)}</td>

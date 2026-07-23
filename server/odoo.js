@@ -267,12 +267,16 @@ async function pullPurchaseOrders() {
         sup = { id: supId };
       }
 
-      // Cliente final + precio de venta al cliente (para la ganancia), desde la venta de origen
-      let clientId = null, saleTotal = po.amount_total;
+      // Cliente final + precio de venta + CANAL (para detectar Mercado Libre / Tienda Nube)
+      let clientId = null, saleTotal = po.amount_total, channel = po.partner_ref || null;
       if (po.origin) {
         const so = await execKw('sale.order', 'search_read', [[['name', '=', po.origin]]],
-          { fields: ['partner_id', 'amount_total'], limit: 1 }).catch(() => []);
-        if (so && so[0] && typeof so[0].amount_total === 'number') saleTotal = so[0].amount_total;
+          { fields: ['partner_id', 'amount_total', 'team_id', 'client_order_ref'], limit: 1 }).catch(() => []);
+        if (so && so[0]) {
+          if (typeof so[0].amount_total === 'number') saleTotal = so[0].amount_total;
+          channel = [Array.isArray(so[0].team_id) ? so[0].team_id[1] : null,
+            so[0].client_order_ref, po.partner_ref].filter(Boolean).join(' ') || null;
+        }
         if (so && so[0] && Array.isArray(so[0].partner_id)) {
           const cpid = so[0].partner_id[0];
           const ex = db.prepare('SELECT id FROM clients WHERE odoo_id=?').get(cpid);
@@ -297,14 +301,14 @@ async function pullPurchaseOrders() {
       if (existing) {
         orderId = existing.id;
         db.prepare(`UPDATE orders SET supplier_id=?, client_id=COALESCE(?,client_id), sale_total=?,
-          order_number=?, barcode=?, po_number=?, updated_at=datetime('now') WHERE id=?`)
-          .run(sup.id, clientId, saleTotal, saleNumber, saleNumber, poNumber, orderId);
+          order_number=?, barcode=?, po_number=?, store=COALESCE(?,store), updated_at=datetime('now') WHERE id=?`)
+          .run(sup.id, clientId, saleTotal, saleNumber, saleNumber, poNumber, channel, orderId);
         if (existing.supplier_id !== sup.id) assigned++;
       } else {
         orderId = db.prepare(`INSERT INTO orders
-          (order_number, po_number, barcode, client_id, supplier_id, sale_total, created_date, confirmed_date, confirmation)
-          VALUES (?,?,?,?,?,?,?,?, 'nuevo')`).run(saleNumber, poNumber, saleNumber, clientId, sup.id,
-          saleTotal, po.date_order, po.date_order).lastInsertRowid;
+          (order_number, po_number, barcode, client_id, supplier_id, sale_total, store, created_date, confirmed_date, confirmation)
+          VALUES (?,?,?,?,?,?,?,?,?, 'nuevo')`).run(saleNumber, poNumber, saleNumber, clientId, sup.id,
+          saleTotal, channel, po.date_order, po.date_order).lastInsertRowid;
         assigned++;
         // Notificar al proveedor
         const users = db.prepare("SELECT id FROM users WHERE role='proveedor' AND supplier_id=?").all(sup.id);

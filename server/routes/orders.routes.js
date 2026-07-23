@@ -52,9 +52,10 @@ router.get('/', (req, res) => {
   }
 
   const sql = `
-    SELECT o.id, o.order_number, o.priority, o.confirmation, o.created_date, o.general_notes,
+    SELECT o.id, o.order_number, o.priority, o.confirmation, o.created_date, o.general_notes, o.store,
            c.name AS client_name, s.name AS supplier_name, o.supplier_id,
            (SELECT COUNT(*) FROM order_lines l WHERE l.order_id=o.id) AS line_count,
+           (SELECT l.product_name FROM order_lines l WHERE l.order_id=o.id ORDER BY l.id LIMIT 1) AS first_product,
            (SELECT COALESCE(SUM(l.qty),0) FROM order_lines l WHERE l.order_id=o.id) AS total_qty,
            (SELECT MIN(d.estimated_date) FROM deliveries d WHERE d.order_id=o.id) AS eta,
            (SELECT COUNT(*) FROM order_lines l WHERE l.order_id=o.id AND l.state='demorado') AS delayed_lines,

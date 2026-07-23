@@ -24,7 +24,9 @@ async function viewOrderDetail(id) {
   const body = document.getElementById('detailBody');
 
   // --- Cabecera del pedido ---
-  let head = `<div class="panel"><h2>Datos del pedido</h2>
+  let head = isUrgentChannel(o.store, o.client_name)
+    ? '<div class="alertbox danger" style="font-weight:800;font-size:16px">🔴 MERCADO LIBRE — PEDIDO URGENTE</div>' : '';
+  head += `<div class="panel"><h2>Datos del pedido ${channelBadge(o.store, o.client_name)}</h2>
     <div class="specs">
       <div class="spec"><b>Orden</b>${esc(o.order_number)}</div>
       <div class="spec"><b>Código</b><span class="mono">${esc(o.barcode || o.order_number)}</span></div>
@@ -209,7 +211,7 @@ function costPanel(l, cost, isAdmin) {
   return `<h3>💲 Costo ${statusBadge}</h3>
     <input type="hidden" class="c_qty" value="${c.qty ?? l.qty}">
     <div class="grid2">
-      <div><label class="lab">Costo por unidad</label>
+      <div><label class="lab">Precio de costo (por unidad)</label>
         <input type="number" class="c_unit_cost" value="${c.unit_cost ?? ''}" step="0.01" placeholder="0" style="font-size:18px"></div>
       <div><label class="lab">Total (${l.qty} u.)</label><input class="c_total" value="${money(c.total_cost)}" disabled></div>
     </div>
@@ -230,22 +232,14 @@ function costStatusBadge(s) {
 function deliveryPanel(o) {
   const d = o.delivery || {};
   const canEdit = API.user.role === 'proveedor' || API.user.role === 'admin';
-  return `<div class="panel"><h2>📅 Fecha estimada de entrega</h2>
-    <div class="grid3">
-      <div><label class="lab">Fecha estimada</label><input type="date" id="d_est" value="${(d.estimated_date || '').slice(0, 10)}" ${canEdit ? '' : 'disabled'}></div>
-      <div><label class="lab">Nueva fecha estimada</label><input type="date" id="d_new" ${canEdit ? '' : 'disabled'}></div>
-      <div><label class="lab">Franja horaria</label><input id="d_slot" value="${esc(d.time_slot || '')}" ${canEdit ? '' : 'disabled'}></div>
-      <div><label class="lab">Fecha terminado</label><input type="date" id="d_fin" value="${(d.finished_date || '').slice(0, 10)}" ${canEdit ? '' : 'disabled'}></div>
-      <div><label class="lab">Fecha despacho</label><input type="date" id="d_dis" value="${(d.dispatch_date || '').slice(0, 10)}" ${canEdit ? '' : 'disabled'}></div>
-      <div><label class="lab">Fecha real de entrega</label><input type="date" id="d_real" value="${(d.real_date || '').slice(0, 10)}" ${canEdit ? '' : 'disabled'}></div>
-      <div><label class="lab">Tipo de entrega</label><select id="d_type" ${canEdit ? '' : 'disabled'}>
-        <option value="">—</option>${Object.entries(DELIVERY_TYPES).map(([k, v]) => `<option value="${k}" ${d.delivery_type === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
-      <div><label class="lab">Entrega</label><select id="d_full" ${canEdit ? '' : 'disabled'}>
-        <option value="total" ${d.full_or_partial === 'total' ? 'selected' : ''}>Total</option>
-        <option value="parcial" ${d.full_or_partial === 'parcial' ? 'selected' : ''}>Parcial</option></select></div>
+  return `<div class="panel"><h2>📅 Entrega</h2>
+    <div class="grid2">
+      <div><label class="lab">Fecha de posible entrega</label>
+        <input type="date" id="d_est" value="${(d.estimated_date || '').slice(0, 10)}" ${canEdit ? '' : 'disabled'} style="font-size:18px"></div>
+      <div><label class="lab">Observación</label>
+        <input id="d_notes" value="${esc(d.notes || '')}" placeholder="Comentario sobre la entrega" ${canEdit ? '' : 'disabled'}></div>
     </div>
-    <div class="field"><label class="lab">Observaciones</label><input id="d_notes" value="${esc(d.notes || '')}" ${canEdit ? '' : 'disabled'}></div>
-    ${canEdit ? `<button class="btn small" onclick="saveDelivery(${o.id}, this)">Guardar fechas</button>` : ''}
+    ${canEdit ? `<button class="btn" onclick="saveDelivery(${o.id}, this)">Guardar</button>` : ''}
   </div>`;
 }
 
@@ -350,11 +344,9 @@ async function costDecision(costId, decision, lineId) {
   catch (e) { toast(e.message, 'err'); }
 }
 async function saveDelivery(orderId, btn) {
-  const v = (id) => document.getElementById(id).value || null;
-  const body = { estimated_date: v('d_est'), new_estimated: v('d_new'), time_slot: v('d_slot'),
-    finished_date: v('d_fin'), dispatch_date: v('d_dis'), real_date: v('d_real'),
-    delivery_type: v('d_type'), full_or_partial: v('d_full'), notes: v('d_notes') };
-  try { await API.post('/deliveries/' + orderId, body); toast('Fechas guardadas', 'ok'); }
+  const v = (id) => document.getElementById(id)?.value || null;
+  const body = { estimated_date: v('d_est'), notes: v('d_notes') };
+  try { await API.post('/deliveries/' + orderId, body); toast('Guardado', 'ok'); }
   catch (e) { toast(e.message, 'err'); }
 }
 const currentOrderId = () => +(location.hash.match(/orders\/(\d+)/) || [])[1];
