@@ -67,11 +67,15 @@ async function shell(view) {
 
   app().innerHTML = `<div class="layout">
     <aside class="sidebar">
-      <div class="logo">🛋️ Todo en Muebles<small>Portal de Proveedores</small></div>
+      <div class="logo">
+        <span class="logo-top">TODO <em>EN</em></span>
+        <span class="logo-bottom">MUEBLES</span>
+        <small>Portal de Proveedores</small>
+      </div>
       <nav>${navLinks}</nav>
       <div class="spacer"></div>
       <div class="userbox">${esc(API.user.name)}<br>${esc(roleLabel(role))}
-        <br><a href="#" id="logout" style="color:#ffd">Cerrar sesión</a></div>
+        <br><a href="#" id="logout">Cerrar sesión</a></div>
     </aside>
     <div class="main">
       <div class="topbar">
@@ -104,8 +108,8 @@ async function refreshNotifBadge() {
 // ============================================================================
 function renderLogin() {
   app().innerHTML = `<div class="login-wrap"><div class="login-card">
-    <h1>🛋️ Todo en Muebles</h1>
-    <p class="sub">Portal de Proveedores — ingresá con tu usuario</p>
+    <div class="brand-logo"><span class="lt">TODO <em>EN</em></span><span class="lb">MUEBLES</span></div>
+    <p class="sub">Portal de Proveedores</p>
     <form id="loginForm">
       <div class="field"><label class="lab">Correo o usuario</label>
         <input id="identifier" autocomplete="username" required></div>
