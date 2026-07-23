@@ -239,6 +239,25 @@ async function pushToOdoo(model, odooId, values, entity) {
   }
 }
 
+// Chequea si hay un remito (stock.picking) VALIDADO (state='done') para el
+// origen dado. typeCode='outgoing' = remito de salida (OUT, al cliente);
+// 'incoming' = recepción (IN, del proveedor). Si el filtro por tipo falla
+// en esta instancia de Odoo, reintenta sin filtrar por tipo.
+async function isPickingValidated(originName, typeCode) {
+  if (!originName) return false;
+  try {
+    const n = await execKw('stock.picking', 'search_count',
+      [[['origin', '=', originName], ['state', '=', 'done'], ['picking_type_id.code', '=', typeCode]]]);
+    return n > 0;
+  } catch (e) {
+    try {
+      const n = await execKw('stock.picking', 'search_count',
+        [[['origin', '=', originName], ['state', '=', 'done']]]);
+      return n > 0;
+    } catch (e2) { return false; }
+  }
+}
+
 // ---- Sincronización de ÓRDENES DE COMPRA (asignación por proveedor) --------
 // Cada orden de compra confirmada (state='purchase') se convierte en un pedido
 // del portal, asignado automáticamente al proveedor de esa OC (match por odoo_id).
@@ -289,8 +308,16 @@ async function pullPurchaseOrders() {
       if (!so) continue; // sin venta asociada -> no va al portal del proveedor
 
       // "Estado de entrega" de Odoo: entregado si la OC está recibida o la venta entregada.
-      const deliveredByOdoo = (hasReceipt && po.receipt_status === 'full')
+      let deliveredByOdoo = (hasReceipt && po.receipt_status === 'full')
         || (hasDelivery && so.delivery_status === 'full');
+      // Señal directa: remito de salida al cliente (OUT) o recepción del proveedor (IN) validado.
+      if (!deliveredByOdoo) {
+        const [outDone, inDone] = await Promise.all([
+          isPickingValidated(saleName, 'outgoing'),
+          isPickingValidated(po.name, 'incoming'),
+        ]);
+        deliveredByOdoo = outDone || inDone;
+      }
 
       const saleTotal = typeof so.amount_total === 'number' ? so.amount_total : po.amount_total;
       const channel = [Array.isArray(so.team_id) ? so.team_id[1] : null,

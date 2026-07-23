@@ -73,18 +73,25 @@ async function drawLabel(doc, d) {
   const txt = (str, size, opts = {}) => {
     doc.font(opts.bold === false ? 'Helvetica' : 'Helvetica-Bold').fontSize(size).fillColor('#111');
     const h = doc.heightOfString(str, { width: innerW });
-    doc.text(str, pad, y, { width: innerW, height: bottom - y, ellipsis: true });
+    doc.text(str, pad, y, { width: innerW, height: bottom - y, ellipsis: true, align: opts.align || 'left' });
     y += h;
   };
 
-  // --- Logo grande ------------------------------------------------------------
+  // --- Logo grande (centrado) --------------------------------------------------
   let logoOk = false;
   if (LOGO_PATH) {
-    try { doc.image(LOGO_PATH, pad, y, { fit: [innerW, mm(13)] }); logoOk = true; y += mm(14); } catch (e) { logoOk = false; }
+    try {
+      const img = doc.openImage(LOGO_PATH);
+      const maxW = innerW, maxH = mm(13);
+      let w = maxW, h = w * (img.height / img.width);
+      if (h > maxH) { h = maxH; w = h * (img.width / img.height); }
+      doc.image(img, pad + (innerW - w) / 2, y, { width: w, height: h });
+      logoOk = true; y += maxH + mm(1);
+    } catch (e) { logoOk = false; }
   }
   if (!logoOk) {
-    txt('TODO', 24); y += mm(0.5);
-    txt('MUEBLES', 24); y += mm(1.5);
+    txt('TODO', 24, { align: 'center' }); y += mm(0.5);
+    txt('MUEBLES', 24, { align: 'center' }); y += mm(1.5);
   }
 
   line(doc, pad, y, PAGE_W - pad, y, '#111'); y += mm(1.5);
@@ -104,6 +111,7 @@ async function drawLabel(doc, d) {
   // --- Datos del pedido ---------------------------------------------------------
   const addr = [d.address, [d.city, d.province].filter(Boolean).join(', ')].filter(Boolean).join(', ');
   txt(`Producto: ${d.productName || '—'}`, 9); y += mm(0.6);
+  if (d.legs) { txt(`Patas: ${d.legs}`, 8); y += mm(0.6); }
   txt(`Cliente: ${d.clientName || '—'}`, 9); y += mm(0.6);
   txt(`Orden: ${d.orderNumber || '—'}`, 8, { bold: false }); y += mm(0.6);
   if (addr) txt(`Dir: ${addr}`, 8, { bold: false });

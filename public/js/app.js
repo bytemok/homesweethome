@@ -222,7 +222,7 @@ async function viewOrders() {
       </div>
       <div id="owedBox"></div>
       <div class="table-wrap"><table id="ordersTable"><thead><tr>
-        ${canSelect ? '<th></th>' : ''}<th>Orden</th><th>Vendido</th><th>Cliente</th><th>Producto a preparar</th>${isAdmin ? '<th>Proveedor</th>' : ''}
+        <th>Fecha</th>${canSelect ? '<th></th>' : ''}<th>Orden</th><th>Cliente</th><th>Producto a preparar</th>${isAdmin ? '<th>Proveedor</th>' : ''}
         <th>Reclamo</th><th>Confirmación</th><th>Estados</th><th>Cant.</th>${showCost ? '<th>Costo</th>' : ''}<th>Entrega</th>
       </tr></thead><tbody><tr><td colspan="11" class="muted">Cargando…</td></tr></tbody></table></div>
     </div>`;
@@ -298,9 +298,9 @@ async function viewOrders() {
     tb.innerHTML = rows.map((o) => {
       const states = (o.states || []).map((s) => stateBadge(s)).join(' ');
       return `<tr class="clickable" data-id="${o.id}">
+        <td class="muted">${o.sale_date ? fdate(o.sale_date) : '—'}</td>
         ${canSelect ? `<td><input type="checkbox" class="selorder" value="${o.id}" onclick="event.stopPropagation()" style="width:auto"></td>` : ''}
         <td><b>${esc(o.order_number)}</b> ${channelBadge(o.store, o.client_name)}</td>
-        <td class="muted">${o.sale_date ? fdate(o.sale_date) : '—'}</td>
         <td>${esc(o.client_name || '—')}</td>
         <td>${esc(o.first_product || '—')}${o.line_count > 1 ? ` <span class="muted">(+${o.line_count - 1})</span>` : ''}</td>
         ${isAdmin ? `<td>${esc(o.supplier_name || '<span style="color:#b00">Sin asignar</span>')}</td>` : ''}

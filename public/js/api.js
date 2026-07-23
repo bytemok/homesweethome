@@ -54,7 +54,12 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = (n, cur = 'ARS') => (n == null ? '—' : new Intl.NumberFormat('es-AR',
   { style: 'currency', currency: cur, maximumFractionDigits: 0 }).format(n));
-const fdate = (s) => (s ? String(s).slice(0, 10) : '—');
+const fdate = (s) => {
+  if (!s) return '—';
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s));
+  if (!m) return String(s).slice(0, 10);
+  return `${m[3]}/${m[2]}/${m[1].slice(2)}`; // DD/MM/AA
+};
 const fdatetime = (s) => (s ? String(s).replace('T', ' ').slice(0, 16) : '—');
 
 function stateBadge(state) {
